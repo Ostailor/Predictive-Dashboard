@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head_scripts %}
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>{{ title }}</h2>
+
+    <form method="GET" action="{{ url_for('main.sales_overview') }}" class="form-inline mb-3">
+        <div class="form-group mr-2">
+            <label for="forecast_periods" class="mr-2">Forecast Periods (days):</label>
+            <input type="number" class="form-control" id="forecast_periods" name="forecast_periods" value="{{ current_forecast_periods | default(30) }}" min="1" max="365">
+        </div>
+        <button type="submit" class="btn btn-primary">Update Forecast</button>
+    </form>
+
+    {% if graph_json %}
+        <div id="salesChart" class="chart" style="width:100%;height:500px;"></div>
+        <script type="text/javascript">
+            var graph = {{ graph_json | safe }};
+            console.log("DEBUG (JavaScript): Full graph object from Python:", JSON.parse(JSON.stringify(graph))); // Full object
+            if (graph.data && graph.data[0] && graph.data[0].y) {
+                console.log("DEBUG (JavaScript): First 10 Y-values for HISTORICAL sales:", graph.data[0].y.slice(0, 10));
+            }
+            // Check if there is a forecast trace (it would be graph.data[1])
+            if (graph.data && graph.data[1] && graph.data[1].y) {
+                console.log("DEBUG (JavaScript): First 10 Y-values for FORECASTED sales:", graph.data[1].y.slice(0, 10));
+                console.log("DEBUG (JavaScript): Last 10 Y-values for FORECASTED sales:", graph.data[1].y.slice(-10));
+                console.log("DEBUG (JavaScript): ALL Y-values for FORECASTED sales:", graph.data[1].y); // Log all forecast Y values
+            } else if (graph.data && graph.data.length > 0) {
+                console.log("DEBUG (JavaScript): Historical trace found, but no forecast trace (graph.data[1]) found or it has no Y values.");
+            } else {
+                console.log("DEBUG (JavaScript): No graph data found.");
+            }
+            Plotly.newPlot('salesChart', graph.data, graph.layout || {});
+        </script>
+    {% else %}
+        <p>No sales data available to display or model could not be trained.</p>
+    {% endif %}
+</div>
+{% endblock %}
