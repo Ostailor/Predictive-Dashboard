@@ -81,11 +81,7 @@ train.csv
 *.joblib
 
 # Data and model directories
-data/
-models/
-output/
-outputs/
-results/
+
 
 # Django stuff:
 # *.log # Covered by general Log files section above
