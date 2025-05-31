@@ -1,46 +1,141 @@
 {% extends "base.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}Sales Overview & Forecast{% endblock %}
 
 {% block head_scripts %}
-    <!-- Plotly.js -->
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    {{ super() }}
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <style>
+        #salesOverviewContentWrapper { /* Renamed for clarity */
+            position: relative; /* For absolute positioning of the overlay */
+            min-height: 500px;  /* Ensure space for loader, adjust as needed */
+            /* The blur will be applied dynamically by JS */
+        }
+
+        #salesOverviewContentWrapper.content-blurred-for-plot {
+            filter: blur(4px);
+            transition: filter 0.15s linear;
+        }
+
+        #plotRenderOverlay { /* Renamed for clarity */
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.85); /* Slightly more opaque */
+            display: none; /* Initially hidden, shown by JS */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1050;
+            text-align: center;
+        }
+
+        #plotRenderOverlay .progress {
+            width: 60%; 
+            max-width: 400px; /* Max width for progress bar */
+            margin-bottom: 20px;
+            height: 1.75rem; /* Made taller */
+            background-color: #e9ecef; /* Lighter background for progress track */
+            border-radius: .375rem; /* Bootstrap 5 default radius */
+        }
+        
+        #plotRenderOverlay .progress-bar {
+            font-size: 0.9rem; 
+            font-weight: 500;
+            color: white; /* Ensure text is visible on the bar */
+        }
+
+        #plotRenderOverlay p {
+            font-size: 1.25em; 
+            color: #343a40; /* Darker text */
+            font-weight: 500;
+        }
+
+        /* Ensure main content elements are hidden initially */
+        #salesOverviewPageTitle, #salesChartDisplay, #noSalesDataMessage {
+            visibility: hidden;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h2>{{ title }}</h2>
-
-    <form method="GET" action="{{ url_for('main.sales_overview') }}" class="form-inline mb-3">
-        <div class="form-group mr-2">
-            <label for="forecast_periods" class="mr-2">Forecast Periods (days):</label>
-            <input type="number" class="form-control" id="forecast_periods" name="forecast_periods" value="{{ current_forecast_periods | default(30) }}" min="1" max="365">
+<div class="container mt-4" id="salesOverviewContentWrapper"> 
+    <!-- Plot Rendering Overlay -->
+    <div id="plotRenderOverlay">
+        <div class="progress">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                 role="progressbar" 
+                 style="width: 100%;" 
+                 aria-valuenow="100" 
+                 aria-valuemin="0" 
+                 aria-valuemax="100">
+                 Rendering Chart...
+            </div>
         </div>
-        <button type="submit" class="btn btn-primary">Update Forecast</button>
-    </form>
+        <p>Preparing Sales Visualization...</p>
+    </div>
+
+    <!-- Main Page Content -->
+    <h2 id="salesOverviewPageTitle">Sales Performance Analysis</h2> 
 
     {% if graph_json %}
-        <div id="salesChart" class="chart" style="width:100%;height:500px;"></div>
-        <script type="text/javascript">
-            var graph = {{ graph_json | safe }};
-            console.log("DEBUG (JavaScript): Full graph object from Python:", JSON.parse(JSON.stringify(graph))); // Full object
-            if (graph.data && graph.data[0] && graph.data[0].y) {
-                console.log("DEBUG (JavaScript): First 10 Y-values for HISTORICAL sales:", graph.data[0].y.slice(0, 10));
-            }
-            // Check if there is a forecast trace (it would be graph.data[1])
-            if (graph.data && graph.data[1] && graph.data[1].y) {
-                console.log("DEBUG (JavaScript): First 10 Y-values for FORECASTED sales:", graph.data[1].y.slice(0, 10));
-                console.log("DEBUG (JavaScript): Last 10 Y-values for FORECASTED sales:", graph.data[1].y.slice(-10));
-                console.log("DEBUG (JavaScript): ALL Y-values for FORECASTED sales:", graph.data[1].y); // Log all forecast Y values
-            } else if (graph.data && graph.data.length > 0) {
-                console.log("DEBUG (JavaScript): Historical trace found, but no forecast trace (graph.data[1]) found or it has no Y values.");
-            } else {
-                console.log("DEBUG (JavaScript): No graph data found.");
-            }
-            Plotly.newPlot('salesChart', graph.data, graph.layout || {});
-        </script>
+        <div id="salesChartDisplay" class="chart" style="width:100%;height:500px;"></div>
     {% else %}
-        <p>No sales data available to display or model could not be trained.</p>
+        <p id="noSalesDataMessage" class="lead">No sales data available to display or model could not be trained.</p>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block body_scripts %}
+    {{ super() }}
+    <script type="text/javascript">
+        document.addEventListener('DOMContentLoaded', function() {
+            const contentWrapper = document.getElementById('salesOverviewContentWrapper');
+            const loader = document.getElementById('plotRenderOverlay');
+            const titleElement = document.getElementById('salesOverviewPageTitle');
+            const chartDiv = document.getElementById('salesChartDisplay');
+            const noDataMsg = document.getElementById('noSalesDataMessage');
+
+            // Show loader and blur background
+            if (loader) {
+                loader.style.display = 'flex';
+            }
+            if (contentWrapper) {
+                contentWrapper.classList.add('content-blurred-for-plot');
+            }
+
+            {% if graph_json %}
+                const graphData = {{ graph_json | safe }};
+                
+                // Use requestAnimationFrame to ensure Plotly renders after loader is shown
+                requestAnimationFrame(function() {
+                    Plotly.newPlot(chartDiv, graphData.data, graphData.layout || {})
+                        .then(function() {
+                            if (loader) loader.style.display = 'none';
+                            if (contentWrapper) contentWrapper.classList.remove('content-blurred-for-plot');
+                            if (titleElement) titleElement.style.visibility = 'visible';
+                            if (chartDiv) chartDiv.style.visibility = 'visible';
+                        })
+                        .catch(function(err) {
+                            console.error("Plotly rendering error:", err);
+                            if (loader) loader.style.display = 'none';
+                            if (contentWrapper) contentWrapper.classList.remove('content-blurred-for-plot');
+                            if (titleElement) titleElement.style.visibility = 'visible';
+                            if (chartDiv) {
+                                chartDiv.innerHTML = "<p class='text-danger'>Error rendering chart. Please try again.</p>";
+                                chartDiv.style.visibility = 'visible';
+                            }
+                        });
+                });
+            {% else %}
+                // No graph data, just hide loader and show message
+                if (loader) loader.style.display = 'none';
+                if (contentWrapper) contentWrapper.classList.remove('content-blurred-for-plot');
+                if (titleElement) titleElement.style.visibility = 'visible';
+                if (noDataMsg) noDataMsg.style.visibility = 'visible';
+            {% endif %}
+        });
+    </script>
 {% endblock %}

@@ -63,10 +63,34 @@ coverage.xml
 *.pot
 *.log
 
-# Django stuff:
+# Log files
 *.log
+
+# Data, Model, and Configuration Files
+# Specific large data files
+train.csv
+
+# General data file extensions
+*.csv
+*.json
+*.pkl
+*.xls
+*.xlsx
+*.sqlite
+*.sqlite3
+*.joblib
+
+# Data and model directories
+data/
+models/
+output/
+outputs/
+results/
+
+# Django stuff:
+# *.log # Covered by general Log files section above
 local_settings.py
-db.sqlite3
+db.sqlite3 # Covered by *.sqlite3 above, but can be kept for explicitness
 db.sqlite3-journal
 
 # Flask stuff:

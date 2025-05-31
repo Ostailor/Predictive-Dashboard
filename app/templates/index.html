@@ -1,29 +1,93 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title }} - Predictive Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
-<body>
-    <header>
-        <h1>Welcome to the Predictive Dashboard</h1>
-    </header>
-    <main>
-        {% block content %}
-        <div class="jumbotron mt-4">
-            <h1 class="display-4">Welcome to the Predictive Dashboard!</h1>
-            <p class="lead">This dashboard uses AI to provide business insights and predict future trends.</p>
+{% extends "base.html" %}
+
+{% block title %}Welcome - Predictive Dashboard{% endblock %}
+
+{% block head_scripts %}
+    {{ super() }} 
+    <style>
+        /* Full page loader for index.html navigation */
+        #navigationLoader {
+            position: fixed; /* Covers the entire viewport */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.85); /* Slightly more opaque for better loader visibility */
+            display: none; /* Hidden by default, shown by JS */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000; /* High z-index to be on top of everything */
+            text-align: center;
+        }
+
+        #navigationLoader .spinner-border {
+            width: 3.5rem; /* Slightly larger spinner */
+            height: 3.5rem;
+            margin-bottom: 20px;
+            border-width: .3em; /* Thicker spinner border */
+        }
+
+        #navigationLoader p {
+            font-size: 1.4em; /* Larger text */
+            color: #2c3e50; /* Darker text for better contrast */
+            font-weight: 500;
+        }
+
+        /* Apply blur to main sections when body has 'navigating-blur' */
+        body.navigating-blur > #mainNav,
+        body.navigating-blur > #mainContent,
+        body.navigating-blur > #mainFooter {
+            filter: blur(4px);
+            transition: filter 0.1s linear; /* Smooth blur transition */
+        }
+    </style>
+{% endblock %}
+
+{% block body_overlays %} <!-- Place the loader here -->
+<div id="navigationLoader">
+    <div class="spinner-border text-primary" role="status">
+        <!-- For Bootstrap 5, use visually-hidden. For BS4, use sr-only -->
+        <span class="sr-only">Loading...</span> <!-- MODIFIED: Changed visually-hidden to sr-only for Bootstrap 4 -->
+    </div>
+    <p>Loading Model & Sales Data...</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container py-5"> 
+    <div class="p-5 mb-4 bg-light rounded-3 shadow-sm"> 
+        <div class="container-fluid py-4"> 
+            <h1 class="display-4 fw-bold">Welcome to the Predictive Dashboard!</h1>
+            <p class="fs-5 col-md-10">
+                This dashboard leverages AI to provide insightful business analytics and forecast future sales trends. 
+                Explore the Sales Overview to see our model in action.
+            </p>
             <hr class="my-4">
-            <p>Navigate using the menu above to explore different analytics.</p>
-            <a class="btn btn-primary btn-lg" href="{{ url_for('main.sales_overview') }}" role="button">View Sales Overview</a>
+            <p>Navigate using the menu above or click the button below to get started.</p>
+            <a id="viewSalesOverviewBtn" class="btn btn-primary btn-lg" href="{{ url_for('main.sales_overview') }}" role="button">
+                View Sales Overview
+            </a>
         </div>
-        {% endblock %}
-    </main>
-    <footer>
-        <p>&copy; 2025 Your Company</p>
-    </footer>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-</body>
-</html>
+    </div>
+</div>
+{% endblock %}
+
+{% block body_scripts %}
+    {{ super() }} 
+    <script>
+        document.getElementById('viewSalesOverviewBtn').addEventListener('click', function(event) {
+            event.preventDefault(); 
+            
+            document.getElementById('navigationLoader').style.display = 'flex';
+            document.body.classList.add('navigating-blur'); // This class on body triggers targeted blur
+            
+            const targetUrl = this.href;
+
+            // Short delay to ensure loader UI updates before navigation blocks rendering
+            setTimeout(function() {
+                window.location.href = targetUrl;
+            }, 50); 
+        });
+    </script>
+{% endblock %}
