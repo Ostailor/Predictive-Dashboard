@@ -83,6 +83,70 @@
     {% endif %}
     
     <hr class="my-4"> 
+
+    <div class="card mt-4 mb-4 shadow-sm">
+        <div class="card-header bg-secondary text-white">
+            <h4 class="mb-0">Global Cache Actions</h4>
+        </div>
+        <div class="card-body">
+            <p class="card-text">These actions affect the entire cache for Random Forest models.</p>
+            <form method="POST" action="{{ url_for('main.clear_all_rf_cache_route') }}" 
+                  onsubmit="return confirm('Are you absolutely sure you want to delete ALL cached Random Forest models? This action cannot be undone and may require significant time to retrain models.');"
+                  style="display: inline-block;">
+                <button type="submit" class="btn btn-danger">
+                    <i class="fas fa-exclamation-triangle"></i> Clear All Cached RF Models
+                </button>
+            </form>
+            <small class="form-text text-muted mt-2">
+                This will remove all <code>.joblib</code>, <code>.pkl</code>, and <code>.json</code> files from the RF model cache directory.
+            </small>
+        </div>
+    </div>
+
+
+    <div class="card mt-4 shadow-sm">
+        <div class="card-header bg-info text-white">
+            <h4 class="mb-0">Model Training Status</h4>
+        </div>
+        <div class="card-body">
+            <p class="card-text">View the status of the model training jobs. Completed jobs will show the duration and allow you to download the model files.</p>
+            <div class="table-responsive">
+                <table class="table table-striped table-sm">
+                    <thead>
+                        <tr>
+                            <th>Store ID</th>
+                            <th>Item ID</th>
+                            <th>Status</th>
+                            <th>Started At</th>
+                            <th>Ended At</th>
+                            <th>Duration</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in training_jobs %}
+                        <tr>
+                            <td>{{ job.store_id }}</td>
+                            <td>{{ job.item_id }}</td>
+                            <td>{{ job.status }}</td>
+                            <td>{{ job.started_at }}</td>
+                            <td>{{ job.ended_at }}</td>
+                            <td>{{ job.duration }}</td>
+                            <td>
+                                {% if job.status == 'completed' %}
+                                <a href="{{ url_for('main.download_model_files', store=job.store_id, item=job.item_id) }}" class="btn btn-success btn-sm">
+                                    <i class="fas fa-download"></i> Download Models
+                                </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <p><a href="{{ url_for('main.sales_overview') }}">Back to Sales Overview</a></p>
 </div>
 {% endblock %}

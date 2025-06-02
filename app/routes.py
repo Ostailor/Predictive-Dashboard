@@ -14,7 +14,8 @@ from app.ml_models import (
     perform_seasonal_decomposition, # Import the new function
     import_sales_csv_to_db, # Make sure this is imported
     list_cached_rf_models, # Add this import
-    delete_cached_rf_model # Add this import
+    delete_cached_rf_model, # Add this import
+    clear_all_cached_rf_models # Add this new import
 )
 from app.models.data_models import SalesData
 from app.extensions import db
@@ -44,11 +45,12 @@ def sales_overview():
     graph_json = None
     feature_importance_plot_json = None
     raw_test_plot_df = pd.DataFrame()
-    model_mse = float('nan')
+    # model_mse = float('nan') # Will be part of model_metrics dict
+    model_metrics = {} # Initialize as empty dict
     rf_model = None 
     actual_model_path_for_predict = None
     feature_importances_data = None
-    decomposition_plots_json = {} # To store decomposition plots
+    decomposition_plots_json = {}
 
     selected_store = request.args.get('store', 'all')
     selected_item = request.args.get('item', 'all')
@@ -58,7 +60,7 @@ def sales_overview():
 
     filter_options = get_distinct_filter_options_from_db()
     
-    rf_model, raw_train_plot_df, raw_test_plot_df, model_mse, actual_model_path_for_predict, feature_importances_data = \
+    rf_model, raw_train_plot_df, raw_test_plot_df, model_metrics, actual_model_path_for_predict, feature_importances_data = \
         train_sales_forecasting_model_rf(
             store_filter=current_store_filter_for_model,
             item_filter=current_item_filter_for_model
@@ -167,12 +169,10 @@ def sales_overview():
     return render_template('sales_overview.html',
                            graph_json=graph_json,
                            feature_importance_plot_json=feature_importance_plot_json,
-                           stores=filter_options["stores"], # Kept for compatibility if other parts of template use it
-                           items=filter_options["items"],   # Kept for compatibility
-                           filter_options=filter_options, # Add this line
+                           filter_options=filter_options,
                            selected_store=selected_store,
                            selected_item=selected_item,
-                           model_mse=f"{model_mse:.2f}" if model_mse is not None and not pd.isna(model_mse) else "N/A",
+                           model_metrics=model_metrics, # Pass the whole dict
                            test_data_exists=not raw_test_plot_df.empty,
                            decomposition_plots_json=decomposition_plots_json)
 
@@ -285,12 +285,14 @@ def trigger_rf_retrain():
         current_app.logger.info("Triggering manual retraining of RF model (all stores/all items)...")
         # Call the training function with force_retrain=True
         # We are retraining the global model (store_filter=None, item_filter=None)
-        model, _, _, mse, _, _ = train_sales_forecasting_model_rf(
+        model, _, _, metrics_data, _, _ = train_sales_forecasting_model_rf( # Adjusted to match return values
             store_filter=None, 
             item_filter=None, 
             force_retrain=True
         )
         
+        mse = metrics_data.get('test_mse') if metrics_data else None
+
         if model and mse is not None:
             flash(f"Successfully retrained the global Random Forest sales model. New Test MSE: {mse:.2f}", 'success')
         elif model:
@@ -302,6 +304,20 @@ def trigger_rf_retrain():
         current_app.logger.error(f"Error during manual RF model retraining: {e}")
         flash(f"An error occurred during model retraining: {str(e)}", 'danger')
         
+    return redirect(url_for('main.data_management'))
+
+@bp.route('/clear_all_rf_cache', methods=['POST'])
+def clear_all_rf_cache_route():
+    try:
+        current_app.logger.info("Received request to clear all cached RF models.")
+        success = clear_all_cached_rf_models()
+        if success:
+            flash("Successfully cleared all cached Random Forest models.", 'success')
+        else:
+            flash("Could not clear all cached Random Forest models. Some errors occurred. Check logs.", 'warning')
+    except Exception as e:
+        current_app.logger.error(f"Error during clearing all RF cache: {e}")
+        flash(f"An error occurred while trying to clear the RF model cache: {str(e)}", 'danger')
     return redirect(url_for('main.data_management'))
 
 @bp.route('/get_predictions')

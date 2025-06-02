@@ -6,7 +6,7 @@ import joblib
 import json
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score # Add MAE and R2Score
 from .models.data_models import SalesData # Assuming this is how you import SalesData
 from .extensions import db # Assuming this is how you import db
 from sqlalchemy import distinct
@@ -35,7 +35,7 @@ def _get_rf_cache_paths(store_filter, item_filter):
         "model": os.path.join(cache_base_dir, f"{base_filename}.joblib"),
         "train_df": os.path.join(cache_base_dir, f"{base_filename}_train_df.pkl"),
         "test_df": os.path.join(cache_base_dir, f"{base_filename}_test_df.pkl"),
-        "mse": os.path.join(cache_base_dir, f"{base_filename}_mse.json"),
+        "metrics": os.path.join(cache_base_dir, f"{base_filename}_metrics.json"), # Renamed from mse
     }
     return paths
 
@@ -432,32 +432,32 @@ def preprocess_data_for_rf(df): # Renamed for clarity
     return df_processed
 
 # This is the RandomForest version
-def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filter=None, item_filter=None, force_retrain=False): # Add force_retrain
+def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filter=None, item_filter=None, force_retrain=False):
     cache_paths = _get_rf_cache_paths(store_filter, item_filter)
     MODEL_PATH = cache_paths["model"]
     TRAIN_DF_PATH = cache_paths["train_df"]
     TEST_DF_PATH = cache_paths["test_df"]
-    MSE_PATH = cache_paths["mse"]
+    METRICS_PATH = cache_paths["metrics"] # Use new path
     IMPORTANCES_PATH = os.path.join(os.path.dirname(MODEL_PATH), f"rf_model_store_{store_filter if store_filter is not None else 'all'}_item_{item_filter if item_filter is not None else 'all'}_importances.json")
 
-    if not force_retrain: # Only try to load from cache if not forcing retrain
+    if not force_retrain:
         if os.path.exists(MODEL_PATH) and \
            os.path.exists(TRAIN_DF_PATH) and \
            os.path.exists(TEST_DF_PATH) and \
-           os.path.exists(MSE_PATH) and \
+           os.path.exists(METRICS_PATH) and \
            os.path.exists(IMPORTANCES_PATH):
             try:
                 current_app.logger.info(f"Attempting to load cached RF model and artifacts for store '{store_filter}', item '{item_filter}'.")
                 model = joblib.load(MODEL_PATH)
                 train_plot_df = pd.read_pickle(TRAIN_DF_PATH)
                 test_plot_df = pd.read_pickle(TEST_DF_PATH)
-                with open(MSE_PATH, 'r') as f:
-                    mse_data = json.load(f)
-                test_mse = mse_data.get('test_mse', float('nan'))
+                with open(METRICS_PATH, 'r') as f:
+                    metrics_data = json.load(f)
+                # test_mse = metrics_data.get('test_mse', float('nan')) # Old way
                 with open(IMPORTANCES_PATH, 'r') as f:
                     feature_importances_data = json.load(f)
                 current_app.logger.info(f"Successfully loaded cached RF model and artifacts.")
-                return model, train_plot_df, test_plot_df, test_mse, MODEL_PATH, feature_importances_data
+                return model, train_plot_df, test_plot_df, metrics_data, MODEL_PATH, feature_importances_data # Return metrics_data
             except Exception as e:
                 current_app.logger.warning(f"Error loading cached RF model or artifacts: {e}. Proceeding to retrain.")
     else:
@@ -467,31 +467,31 @@ def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filt
     if data_source == 'db':
         df = get_sales_data_from_db_for_rf(store_filter=store_filter, item_filter=item_filter)
         if df.empty:
-            return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None # Added None for importances
+            return None, pd.DataFrame(), pd.DataFrame(), {}, None, None # Return empty dict for metrics
     elif data_source == 'csv' and csv_path:
         df = load_sales_csv(csv_path) 
         if df.empty:
-            return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
+            return None, pd.DataFrame(), pd.DataFrame(), {}, None, None
     else:
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
+        return None, pd.DataFrame(), pd.DataFrame(), {}, None, None
 
     if df.shape[0] < 20: 
         current_app.logger.warning(f"Not enough data points ({df.shape[0]}) for RF model training. Required >= 20.")
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
+        return None, pd.DataFrame(), pd.DataFrame(), {}, None, None
         
     df_processed = preprocess_data_for_rf(df.copy())
     if df_processed.empty or 'sales' not in df_processed.columns or df_processed.shape[0] < 2:
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
+        return None, pd.DataFrame(), pd.DataFrame(), {}, None, None
 
     X = df_processed.drop(['sales', 'date'], axis=1)
     y = df_processed['sales']
     dates_for_split = df_processed['date']
     
-    feature_names = X.columns.tolist() # Get feature names
+    feature_names = X.columns.tolist()
 
     if len(X) < 2 or len(y) < 2: 
         current_app.logger.warning("Not enough data after processing for train/test split in RF model.")
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
+        return None, pd.DataFrame(), pd.DataFrame(), {}, None, None
 
     X_train, X_test, y_train, y_test, dates_train, dates_test = train_test_split(
         X, y, dates_for_split, test_size=0.2, random_state=42, stratify=None
@@ -499,19 +499,27 @@ def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filt
     
     if X_train.empty or X_test.empty:
         current_app.logger.warning("Training or testing set is empty after split for RF model.")
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
+        return None, pd.DataFrame(), pd.DataFrame(), {}, None, None
 
     model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1) 
     model.fit(X_train, y_train)
-    current_app.logger.info(f"RF Model fitting complete for store '{store_filter}', item '{item_filter}'.")
+    current_app.logger.info(f"RF Model fitting complete for store '{store_filter}', item: '{item_filter}'.")
 
     predictions_on_test = model.predict(X_test)
-    test_mse = mean_squared_error(y_test, predictions_on_test)
     
-    # Get feature importances
+    # Calculate all metrics
+    test_mse = mean_squared_error(y_test, predictions_on_test)
+    test_mae = mean_absolute_error(y_test, predictions_on_test)
+    test_r2 = r2_score(y_test, predictions_on_test)
+    
+    metrics_data = {
+        'test_mse': test_mse,
+        'test_mae': test_mae,
+        'test_r2': test_r2
+    }
+    
     importances = model.feature_importances_
     feature_importances_data = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)
-
 
     try:
         joblib.dump(model, MODEL_PATH)
@@ -525,16 +533,16 @@ def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filt
 
         train_plot_df.to_pickle(TRAIN_DF_PATH)
         test_plot_df.to_pickle(TEST_DF_PATH)
-        with open(MSE_PATH, 'w') as f:
-            json.dump({'test_mse': test_mse}, f)
+        with open(METRICS_PATH, 'w') as f: # Save to new metrics path
+            json.dump(metrics_data, f)
         with open(IMPORTANCES_PATH, 'w') as f: 
             json.dump(feature_importances_data, f)
         current_app.logger.info(f"Successfully saved new RF model and artifacts to cache for store '{store_filter}', item '{item_filter}'.")
     except Exception as e:
         current_app.logger.error(f"Error saving RF model or plot artifacts to cache: {e}")
-        return model, train_plot_df, test_plot_df, test_mse, None, feature_importances_data
+        return model, train_plot_df, test_plot_df, metrics_data, None, feature_importances_data
 
-    return model, train_plot_df, test_plot_df, test_mse, MODEL_PATH, feature_importances_data
+    return model, train_plot_df, test_plot_df, metrics_data, MODEL_PATH, feature_importances_data # Return metrics_data
 
 # This is the RandomForest version
 def predict_future_sales_rf(model, train_df, n_periods, store_id, item_id):
@@ -715,7 +723,7 @@ def delete_cached_rf_model(store_filter, item_filter):
         cache_paths["model"],
         cache_paths["train_df"],
         cache_paths["test_df"],
-        cache_paths["mse"],
+        cache_paths["metrics"], # Use new path name
         IMPORTANCES_PATH
     ]
 
@@ -737,6 +745,50 @@ def delete_cached_rf_model(store_filter, item_filter):
     else:
         current_app.logger.warning(f"Cache deletion process completed with some errors for store '{store_str}', item '{item_str}'.")
     return all_successful # Or True even if some files were missing, as the goal is to ensure they are gone.
+
+def clear_all_cached_rf_models():
+    """
+    Deletes all files within the RF model cache directory.
+    Returns True if successful or if the directory was already empty/missing.
+    Returns False if an error occurs during deletion of the directory or its contents.
+    """
+    instance_path = current_app.instance_path
+    cache_base_dir = os.path.join(instance_path, MODEL_CACHE_DIR_NAME)
+    
+    current_app.logger.info(f"Attempting to clear all cached RF models from directory: {cache_base_dir}")
+    
+    if not os.path.exists(cache_base_dir):
+        current_app.logger.info(f"Cache directory {cache_base_dir} does not exist. Nothing to clear.")
+        return True
+        
+    if not os.path.isdir(cache_base_dir):
+        current_app.logger.error(f"Cache path {cache_base_dir} exists but is not a directory. Cannot clear.")
+        return False
+
+    cleared_files_count = 0
+    errors_encountered = False
+    
+    for filename in os.listdir(cache_base_dir):
+        file_path = os.path.join(cache_base_dir, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+                current_app.logger.info(f"Deleted cached file: {file_path}")
+                cleared_files_count += 1
+            elif os.path.isdir(file_path): # Should not have subdirectories based on current logic, but good to handle
+                # For simplicity, we are not recursively deleting subdirectories here.
+                # If subdirectories were expected, shutil.rmtree(file_path) would be used.
+                current_app.logger.warning(f"Found unexpected subdirectory in cache: {file_path}. Skipping.")
+        except Exception as e:
+            current_app.logger.error(f"Error deleting {file_path}. Reason: {e}")
+            errors_encountered = True
+            
+    if errors_encountered:
+        current_app.logger.error(f"Finished clearing RF cache with errors. {cleared_files_count} files deleted.")
+        return False
+    else:
+        current_app.logger.info(f"Successfully cleared {cleared_files_count} files from RF cache directory {cache_base_dir}.")
+        return True
 
 # Example of how you might call these:
 if __name__ == '__main__':
