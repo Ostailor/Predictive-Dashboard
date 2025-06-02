@@ -1,16 +1,59 @@
 <!DOCTYPE html>
-<html lang="en" class="h-100"> <!-- Optional: class="h-100" on html for some Bootstrap versions/sticky footer patterns -->
+<html lang="en" class="h-100">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Predictive Dashboard{% endblock %}</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>{% block title %}My App{% endblock %}</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        /* Styles for the NEW global loader (moved from index.html) */
+        #navigationLoader {
+            position: fixed; /* Covers the entire viewport */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.85); /* Slightly more opaque for better loader visibility */
+            display: none; /* Hidden by default, shown by JS */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000; /* High z-index to be on top of everything */
+            text-align: center;
+        }
+
+        #navigationLoader .spinner-border {
+            width: 3.5rem; /* Slightly larger spinner */
+            height: 3.5rem;
+            margin-bottom: 20px;
+            border-width: .3em; /* Thicker spinner border */
+        }
+
+        #navigationLoader p {
+            font-size: 1.4em; /* Larger text */
+            color: #2c3e50; /* Darker text for better contrast */
+            font-weight: 500;
+        }
+
+        /* Apply blur to main sections when body has 'navigating-blur' (moved from index.html) */
+        body.navigating-blur > #mainNav,
+        body.navigating-blur > #mainContent,
+        body.navigating-blur > #mainFooter { /* Ensure these IDs match your main layout components */
+            filter: blur(4px);
+            transition: filter 0.1s linear; /* Smooth blur transition */
+        }
+    </style>
     {% block head_scripts %}{% endblock %}
 </head>
-<body class="d-flex flex-column min-vh-100"> <!-- MODIFIED: Added flex classes -->
-    {% block body_overlays %}{% endblock %} <!-- NEW BLOCK FOR LOADERS/OVERLAYS -->
+<body class="d-flex flex-column min-vh-100">
+
+    <!-- NEW Global Loader HTML (replaces plotRenderOverlay) -->
+    <div id="navigationLoader">
+        <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+        <p>Loading Model & Sales Data...</p> {# You can make this text dynamic later if needed #}
+    </div>
 
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark" id="mainNav">
         <a class="navbar-brand" href="{{ url_for('main.index') }}">Predictive Dash</a>
@@ -45,9 +88,71 @@
 
     <!-- Optional JavaScript for Bootstrap -->
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.2/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    
+    <script>
+        // Global function to show the loader
+        function showAppLoader() {
+            const overlay = document.getElementById('navigationLoader'); // Use new ID
+            if (overlay) {
+                overlay.style.display = 'flex';
+            }
+            document.body.classList.add('navigating-blur'); // Add blur
+            console.log('showAppLoader called, navigationLoader displayed, body blurred.');
+        }
+
+        // Global function to hide the loader
+        function hideAppLoader() {
+            const overlay = document.getElementById('navigationLoader'); // Use new ID
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+            document.body.classList.remove('navigating-blur'); // Remove blur
+            console.log('hideAppLoader called, navigationLoader hidden, body blur removed.');
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const salesOverviewPageUrl = "{{ url_for('main.sales_overview') }}";
+            
+            document.body.addEventListener('click', function(event) {
+                let targetElement = event.target;
+                while (targetElement && targetElement.tagName !== 'A') {
+                    targetElement = targetElement.parentElement;
+                }
+
+                if (targetElement && targetElement.tagName === 'A') {
+                    const linkHref = targetElement.getAttribute('href');
+                    if (linkHref) {
+                        let isSalesOverviewLink = false;
+                        try {
+                            const absoluteLinkUrl = new URL(linkHref, window.location.origin).pathname;
+                            const salesOverviewPath = new URL(salesOverviewPageUrl, window.location.origin).pathname;
+                            // Check if the link is for sales_overview and not a hash link on the same page
+                            if (absoluteLinkUrl === salesOverviewPath && (window.location.pathname !== salesOverviewPath || linkHref.includes('?') || !linkHref.startsWith('#'))) {
+                               isSalesOverviewLink = true;
+                            }
+                        } catch (e) {
+                            if (linkHref === salesOverviewPageUrl || linkHref.startsWith(salesOverviewPageUrl + "?")) {
+                                isSalesOverviewLink = true;
+                            }
+                        }
+
+                        if (isSalesOverviewLink) {
+                            if (targetElement.target === '_blank' || event.ctrlKey || event.metaKey) {
+                                return;
+                            }
+                            console.log('Link to sales_overview clicked, showing app loader from source page.');
+                            showAppLoader();
+                            // For standard navigation, the loader will persist.
+                            // If event.preventDefault() was used (like in index.html before), ensure navigation happens.
+                            // The current setup relies on default link behavior for navigation.
+                        }
+                    }
+                }
+            }, false);
+        });
+    </script>
     {% block body_scripts %}{% endblock %}
 </body>
 </html>

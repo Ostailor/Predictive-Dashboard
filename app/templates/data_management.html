@@ -35,8 +35,54 @@
     <form method="POST" action="{{ url_for('main.trigger_rf_retrain') }}">
         <button type="submit" class="btn btn-warning">Retrain Global Sales Model</button>
     </form>
+
+    <hr class="my-4">
+
+    <h4>Cached Model Status</h4>
+    {% if cached_models %}
+        <p>The following Random Forest models are currently cached:</p>
+        <div class="table-responsive">
+            <table class="table table-striped table-sm">
+                <thead>
+                    <tr>
+                        <th>Store ID</th>
+                        <th>Item ID</th>
+                        <th>Last Modified (UTC)</th>
+                        <th>Filename</th>
+                        <th>Actions</th> {# New column for actions #}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for model_info in cached_models %}
+                    <tr>
+                        <td>{{ model_info.store }}</td>
+                        <td>{{ model_info.item }}</td>
+                        <td>{{ model_info.last_modified }}</td>
+                        <td>{{ model_info.filename }}</td>
+                        <td>
+                            <form method="POST" 
+                                  action="{{ url_for('main.delete_cached_model_route', store=model_info.store, item=model_info.item) }}"
+                                  style="display: inline-block; margin-right: 5px;"
+                                  onsubmit="return confirm('Are you sure you want to delete the cached model for Store: {{ model_info.store }}, Item: {{ model_info.item }}? This action cannot be undone.');">
+                                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                            </form>
+                            <form method="POST" 
+                                  action="{{ url_for('main.retrain_specific_model_route', store=model_info.store, item=model_info.item) }}"
+                                  style="display: inline-block;"
+                                  onsubmit="return confirm('Are you sure you want to retrain the model for Store: {{ model_info.store }}, Item: {{ model_info.item }}? This may take a moment.');">
+                                <button type="submit" class="btn btn-info btn-sm">Retrain</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p>No Random Forest models are currently cached, or the cache directory is empty/inaccessible.</p>
+    {% endif %}
     
-    <hr class="my-4"> {# Added margin #}
+    <hr class="my-4"> 
     <p><a href="{{ url_for('main.sales_overview') }}">Back to Sales Overview</a></p>
 </div>
 {% endblock %}

@@ -12,6 +12,8 @@ from .extensions import db # Assuming this is how you import db
 from sqlalchemy import distinct
 import pmdarima as pm
 import warnings
+import re # Import the regular expression module
+from datetime import datetime # To display timestamps
 
 # print(f"DEBUG: pmdarima version being used: {pm.__version__}") # Removed
 warnings.filterwarnings("ignore", message="'force_all_finite' was renamed to 'ensure_all_finite' in 1.6 and will be removed in 1.8.", category=FutureWarning)
@@ -646,6 +648,95 @@ def perform_seasonal_decomposition(series, model='additive', period=365):
     except Exception as e:
         print(f"Error during seasonal decomposition: {e}")
         return None, None, None
+
+def list_cached_rf_models():
+    """
+    Scans the RF model cache directory and lists cached models with their details.
+    Returns a list of dictionaries, e.g.:
+    [{'store': '1', 'item': '101', 'last_modified': 'YYYY-MM-DD HH:MM:SS', 'filename': '...'}]
+    """
+    instance_path = current_app.instance_path
+    cache_base_dir = os.path.join(instance_path, MODEL_CACHE_DIR_NAME)
+    
+    cached_models = []
+    if not os.path.exists(cache_base_dir):
+        current_app.logger.info(f"Cache directory {cache_base_dir} does not exist. No models to list.")
+        return cached_models
+
+    # Regex to parse store and item from filenames like:
+    # rf_model_store_1_item_101.joblib
+    # rf_model_store_all_item_all.joblib
+    # rf_model_store_1_item_all.joblib
+    # rf_model_store_all_item_101.joblib
+    filename_pattern = re.compile(r"rf_model_store_(?P<store>[^_]+)_item_(?P<item>[^_]+)\.joblib")
+
+    for filename in os.listdir(cache_base_dir):
+        match = filename_pattern.match(filename)
+        if match:
+            store = match.group('store')
+            item = match.group('item')
+            
+            file_path = os.path.join(cache_base_dir, filename)
+            try:
+                timestamp = os.path.getmtime(file_path)
+                last_modified = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            except Exception as e:
+                current_app.logger.error(f"Could not get timestamp for {file_path}: {e}")
+                last_modified = "N/A"
+                
+            cached_models.append({
+                'store': store,
+                'item': item,
+                'last_modified': last_modified,
+                'filename': filename # Could be useful for a delete action later
+            })
+            
+    # Sort by store, then item for consistent display
+    cached_models.sort(key=lambda x: (x['store'], x['item']))
+    current_app.logger.info(f"Found {len(cached_models)} cached RF model files.")
+    return cached_models
+
+def delete_cached_rf_model(store_filter, item_filter):
+    """
+    Deletes all cached files associated with a specific RF model cohort.
+    Returns True if deletion was attempted (even if some files were already missing),
+    False if a critical error occurred.
+    """
+    cache_paths = _get_rf_cache_paths(store_filter, item_filter)
+    # Also need the importances path, which is not directly in _get_rf_cache_paths output
+    store_str = str(store_filter) if store_filter is not None else 'all'
+    item_str = str(item_filter) if item_filter is not None else 'all'
+    instance_path = current_app.instance_path
+    cache_base_dir = os.path.join(instance_path, MODEL_CACHE_DIR_NAME)
+    importances_filename = f"rf_model_store_{store_str}_item_{item_str}_importances.json"
+    IMPORTANCES_PATH = os.path.join(cache_base_dir, importances_filename)
+
+    files_to_delete = [
+        cache_paths["model"],
+        cache_paths["train_df"],
+        cache_paths["test_df"],
+        cache_paths["mse"],
+        IMPORTANCES_PATH
+    ]
+
+    all_successful = True
+    current_app.logger.info(f"Attempting to delete cached model for store '{store_str}', item '{item_str}'.")
+    for file_path in files_to_delete:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                current_app.logger.info(f"Successfully deleted cached file: {file_path}")
+            else:
+                current_app.logger.info(f"Cached file not found (already deleted or never existed): {file_path}")
+        except Exception as e:
+            current_app.logger.error(f"Error deleting cached file {file_path}: {e}")
+            all_successful = False # Consider this a partial failure
+    
+    if all_successful:
+        current_app.logger.info(f"Cache deletion process completed for store '{store_str}', item '{item_str}'.")
+    else:
+        current_app.logger.warning(f"Cache deletion process completed with some errors for store '{store_str}', item '{item_str}'.")
+    return all_successful # Or True even if some files were missing, as the goal is to ensure they are gone.
 
 # Example of how you might call these:
 if __name__ == '__main__':

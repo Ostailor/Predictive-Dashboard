@@ -14,59 +14,17 @@
             min-height: 500px; 
         }
 
+        /* This class can be kept if you want an additional blur on this specific content area */
+        /* during its internal processing, or removed if global body blur is enough. */
         #salesOverviewContentWrapper.content-blurred-for-plot {
             filter: blur(4px);
             transition: filter 0.15s linear;
-        }
-
-        #plotRenderOverlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(255, 255, 255, 0.85); 
-            display: none; /* Initially hidden */
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 1050;
-            text-align: center;
-        }
-
-        #plotRenderOverlay .progress {
-            width: 60%; 
-            max-width: 400px; 
-            margin-bottom: 20px;
-            height: 1.75rem; 
-            background-color: #e9ecef; 
-            border-radius: .375rem; 
-        }
-        
-        #plotRenderOverlay .progress-bar {
-            font-size: 0.9rem; 
-            font-weight: 500;
-            color: white; 
-        }
-
-        #plotRenderOverlay p {
-            font-size: 1.25em; 
-            color: #343a40; 
-            font-weight: 500;
         }
     </style>
 {% endblock %}
 
 {% block content %}
 <div class="container mt-4" id="salesOverviewContentWrapper"> 
-    <!-- ADD THE OVERLAY DIV HERE -->
-    <div id="plotRenderOverlay">
-        <div class="progress">
-            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" style="width: 100%"></div>
-        </div>
-        <p>Loading data and generating charts...</p>
-    </div>
-
     <h2 id="salesOverviewPageTitle">Sales Performance Analysis</h2> 
 
     <!-- Filter Form - Give it an ID -->
@@ -169,180 +127,164 @@
     console.log("Sales overview BODY_SCRIPTS block processed."); 
 
     document.addEventListener('DOMContentLoaded', function() {
-        console.log("DOMContentLoaded event fired.");
+        console.log("DOMContentLoaded event fired for sales_overview.");
 
         const contentWrapper = document.getElementById('salesOverviewContentWrapper');
-        const overlay = document.getElementById('plotRenderOverlay');
         const filterForm = document.getElementById('filterForm');
 
-        function showLoader() {
-            if (overlay) overlay.style.display = 'flex';
-            if (contentWrapper) contentWrapper.classList.add('content-blurred-for-plot');
-            console.log("Loader shown.");
+        function showPageSpecificLoaderEffects() {
+            // This function ensures the global loader (from base.html) is shown
+            // and can apply any page-specific effects like blurring a particular content area.
+            if (typeof showAppLoader === 'function') {
+                 showAppLoader(); // This shows #navigationLoader and adds body.navigating-blur
+            } else {
+                // Fallback if global showAppLoader is somehow not defined
+                const fallbackLoader = document.getElementById('navigationLoader');
+                if (fallbackLoader) fallbackLoader.style.display = 'flex';
+                document.body.classList.add('navigating-blur');
+            }
+            // If you still want the salesOverviewContentWrapper to have its own blur, keep this:
+            // if (contentWrapper) contentWrapper.classList.add('content-blurred-for-plot');
+            console.log("Sales overview: showPageSpecificLoaderEffects called.");
         }
 
-        function hideLoader() {
-            if (overlay) overlay.style.display = 'none';
-            if (contentWrapper) contentWrapper.classList.remove('content-blurred-for-plot');
-            console.log("Loader hidden.");
+        function hidePageSpecificLoaderEffects() {
+            // This function ensures the global loader is hidden
+            if (typeof hideAppLoader === 'function') {
+                hideAppLoader(); // This hides #navigationLoader and removes body.navigating-blur
+            } else {
+                // Fallback
+                const fallbackLoader = document.getElementById('navigationLoader');
+                if (fallbackLoader) fallbackLoader.style.display = 'none';
+                document.body.classList.remove('navigating-blur');
+            }
+            // If you used a specific blur for salesOverviewContentWrapper, remove it:
+            // if (contentWrapper) contentWrapper.classList.remove('content-blurred-for-plot');
+            console.log("Sales overview: hidePageSpecificLoaderEffects called.");
         }
 
-        showLoader();
+        showPageSpecificLoaderEffects(); // Show loader as soon as sales_overview JS starts
 
         if (filterForm) {
             filterForm.addEventListener('submit', function() {
-                console.log("Filter form submitted, showing loader.");
-                showLoader();
+                console.log("Filter form submitted on sales_overview, showing loader effects.");
+                showPageSpecificLoaderEffects(); 
+                // Form submission will cause a page reload, new page will handle hiding.
             });
         }
         
+        // Array to hold all Plotly promises
+        const plotPromises = [];
+
         try {
+            // Safely get JSON strings from template
             var salesGraphJsonString = {{ graph_json|tojson|safe if graph_json else 'null' }};
             var featureImportanceJsonString = {{ feature_importance_plot_json|tojson|safe if feature_importance_plot_json else 'null' }};
             var decompositionPlotsJsonString = {{ decomposition_plots_json|tojson|safe if decomposition_plots_json else 'null' }};
 
-            console.log("Raw salesGraphJsonString:", salesGraphJsonString);
-            console.log("Raw featureImportanceJsonString:", featureImportanceJsonString);
-            console.log("Raw decompositionPlotsJsonString:", decompositionPlotsJsonString);
-
+            // --- Main Sales Forecast Plot ---
             var salesGraphJson = null;
-            if (salesGraphJsonString && salesGraphJsonString !== 'null') {
-                try {
-                    salesGraphJson = JSON.parse(salesGraphJsonString);
-                    console.log("Parsed salesGraphJson:", salesGraphJson);
-                } catch (e) {
-                    console.error("Error parsing salesGraphJson:", e, salesGraphJsonString);
-                }
+            if (salesGraphJsonString && typeof salesGraphJsonString === 'string' && salesGraphJsonString !== 'null') {
+                try { salesGraphJson = JSON.parse(salesGraphJsonString); } 
+                catch (e) { console.error("Error parsing salesGraphJson:", e, salesGraphJsonString.substring(0,200)+"..."); }
+            } else if (typeof salesGraphJsonString === 'object' && salesGraphJsonString !== null) { // Already an object
+                salesGraphJson = salesGraphJsonString;
             }
 
-            if (salesGraphJson && salesGraphJson.data && salesGraphJson.layout) {
-                Plotly.newPlot('salesForecastChart', salesGraphJson.data, salesGraphJson.layout, {responsive: true});
-                console.log("Sales forecast chart plotted.");
+            if (salesGraphJson && salesGraphJson.data && salesGraphJson.layout && document.getElementById('salesForecastChart')) {
+                plotPromises.push(Plotly.newPlot('salesForecastChart', salesGraphJson.data, salesGraphJson.layout, {responsive: true}));
+                console.log("Sales forecast chart plotting initiated.");
             } else {
-                console.log("Sales forecast chart NOT plotted. salesGraphJson:", salesGraphJson);
+                console.log("Sales forecast chart NOT plotted. Data or div missing. salesGraphJson:", salesGraphJson);
             }
 
+            // --- Feature Importance Plot ---
             var featureImportanceJson = null;
-            if (featureImportanceJsonString && featureImportanceJsonString !== 'null') {
-                try {
-                    featureImportanceJson = JSON.parse(featureImportanceJsonString);
-                    console.log("Parsed featureImportanceJson:", featureImportanceJson);
-                } catch (e) {
-                    console.error("Error parsing featureImportanceJson:", e, featureImportanceJsonString);
-                }
+            if (featureImportanceJsonString && typeof featureImportanceJsonString === 'string' && featureImportanceJsonString !== 'null') {
+                try { featureImportanceJson = JSON.parse(featureImportanceJsonString); }
+                catch (e) { console.error("Error parsing featureImportanceJson:", e, featureImportanceJsonString.substring(0,200)+"..."); }
+            } else if (typeof featureImportanceJsonString === 'object' && featureImportanceJsonString !== null) {
+                featureImportanceJson = featureImportanceJsonString;
             }
 
-            if (featureImportanceJson && featureImportanceJson.data && featureImportanceJson.layout) {
-                Plotly.newPlot('featureImportanceChart', featureImportanceJson.data, featureImportanceJson.layout, {responsive: true});
-                console.log("Feature importance chart plotted.");
+            if (featureImportanceJson && featureImportanceJson.data && featureImportanceJson.layout && document.getElementById('featureImportanceChart')) {
+                plotPromises.push(Plotly.newPlot('featureImportanceChart', featureImportanceJson.data, featureImportanceJson.layout, {responsive: true}));
+                console.log("Feature importance chart plotting initiated.");
             } else {
-                console.log("Feature importance chart NOT plotted. featureImportanceJson:", featureImportanceJson);
+                console.log("Feature importance chart NOT plotted. Data or div missing. featureImportanceJson:", featureImportanceJson);
             }
-
-            // --- SECTION FOR DECOMPOSITION PLOTS (REVISED FOR DETAILED LOGGING) ---
+            
+            // --- Decomposition Plots ---
             var decompositionPlots = null;
-
-            // Check if decompositionPlotsJsonString is already an object (from Jinja's |tojson|safe)
-            // or if it's a string that needs parsing.
             if (typeof decompositionPlotsJsonString === 'object' && decompositionPlotsJsonString !== null) {
-                decompositionPlots = decompositionPlotsJsonString; // It's already an object
-                console.log("Decomposition data is already an object, using directly:", JSON.parse(JSON.stringify(decompositionPlots)));
+                decompositionPlots = decompositionPlotsJsonString;
             } else if (typeof decompositionPlotsJsonString === 'string' && decompositionPlotsJsonString.trim() !== "" && decompositionPlotsJsonString !== 'null') {
-                try {
-                    decompositionPlots = JSON.parse(decompositionPlotsJsonString); // It's a string, parse it
-                    console.log("Parsed decompositionPlotsJsonString (string to object):", JSON.parse(JSON.stringify(decompositionPlots)));
-                } catch (e) {
-                    console.error("Error parsing string decompositionPlotsJsonString:", e, "Value snippet:", decompositionPlotsJsonString.substring(0,200)+"...");
-                    decompositionPlots = null; // Ensure it's null if parsing fails
-                }
+                try { decompositionPlots = JSON.parse(decompositionPlotsJsonString); } 
+                catch (e) { console.error("Error parsing string decompositionPlotsJsonString:", e, decompositionPlotsJsonString.substring(0,200)+"..."); }
+            }
+
+            if (decompositionPlots) {
+                const components = ['trend', 'seasonal', 'residual'];
+                components.forEach(comp => {
+                    const chartDivId = comp + 'Chart'; // e.g., trendChart
+                    if (decompositionPlots.hasOwnProperty(comp) && 
+                        typeof decompositionPlots[comp] === 'string' && 
+                        decompositionPlots[comp].length > 2 && 
+                        document.getElementById(chartDivId)) {
+                        try {
+                            let plotJson = JSON.parse(decompositionPlots[comp]);
+                            if (plotJson && typeof plotJson === 'object' && plotJson.data && plotJson.layout) {
+                                plotPromises.push(Plotly.newPlot(chartDivId, plotJson.data, plotJson.layout, {responsive: true}));
+                                console.log(comp + " chart plotting initiated.");
+                            } else { 
+                                console.warn(comp + " chart NOT plotted. Parsed JSON for " + comp + " is invalid or missing data/layout. Value:", plotJson);
+                            }
+                        } catch (e_comp) { 
+                            console.error("Error parsing/plotting decompositionPlots." + comp + ":", e_comp, "Value snippet:", decompositionPlots[comp].substring(0,100)+"...");
+                        }
+                    } else {
+                        console.warn(comp + " plot rendering skipped. Conditions not met or div not found. Has " + comp + ": " + decompositionPlots.hasOwnProperty(comp) + ", Type: " + typeof decompositionPlots[comp] + ", Div exists: " + !!document.getElementById(chartDivId));
+                    }
+                });
             } else {
-                console.log("Decomposition plots data (decompositionPlotsJsonString) is null, empty, or not a recognized type. No plots to render. Value:", decompositionPlotsJsonString);
+                console.log("Decomposition plots data is null or not an object. No decomposition plots to render.");
             }
 
-            if (decompositionPlots) { // Proceed only if decompositionPlots is a valid object
-                // Plot Trend
-                if (decompositionPlots.hasOwnProperty('trend') && typeof decompositionPlots.trend === 'string' && decompositionPlots.trend.length > 2 && document.getElementById('trendChart')) {
-                    console.log("Attempting to plot Trend. JSON string:", decompositionPlots.trend.substring(0,100) + "...");
-                    try {
-                        let trendPlotJson = JSON.parse(decompositionPlots.trend);
-                        if (trendPlotJson && typeof trendPlotJson === 'object' && trendPlotJson.data && trendPlotJson.layout) {
-                            Plotly.newPlot('trendChart', trendPlotJson.data, trendPlotJson.layout, {responsive: true});
-                            console.log("Trend chart successfully plotted.");
-                        } else {
-                            console.warn("Trend chart NOT plotted. Parsed trendPlotJson is invalid or missing data/layout. Value:", trendPlotJson);
-                        }
-                    } catch (e_trend) {
-                        console.error("Error parsing JSON for decompositionPlots.trend:", e_trend, "Value snippet:", (typeof decompositionPlots.trend === 'string' ? decompositionPlots.trend.substring(0,100) + "..." : "[Trend data not a string]"));
-                    }
-                } else {
-                    console.warn("Trend plot rendering skipped. Conditions not met or div not found.");
-                    if (decompositionPlots && decompositionPlots.hasOwnProperty('trend')) {
-                         console.log("  - decompositionPlots.hasOwnProperty('trend'):", true);
-                         console.log("  - typeof decompositionPlots.trend:", typeof decompositionPlots.trend);
-                         console.log("  - decompositionPlots.trend.length > 2:", (typeof decompositionPlots.trend === 'string' ? decompositionPlots.trend.length > 2 : 'N/A'));
-                    } else if (decompositionPlots) {
-                        console.log("  - decompositionPlots.hasOwnProperty('trend'):", false);
-                    }
-                    console.log("  - document.getElementById('trendChart'):", !!document.getElementById('trendChart'));
-                }
-
-                // Plot Seasonal
-                if (decompositionPlots.hasOwnProperty('seasonal') && typeof decompositionPlots.seasonal === 'string' && decompositionPlots.seasonal.length > 2 && document.getElementById('seasonalChart')) {
-                    console.log("Attempting to plot Seasonal. JSON string:", decompositionPlots.seasonal.substring(0,100) + "...");
-                    try {
-                        let seasonalPlotJson = JSON.parse(decompositionPlots.seasonal);
-                        if (seasonalPlotJson && typeof seasonalPlotJson === 'object' && seasonalPlotJson.data && seasonalPlotJson.layout) {
-                            Plotly.newPlot('seasonalChart', seasonalPlotJson.data, seasonalPlotJson.layout, {responsive: true});
-                            console.log("Seasonal chart successfully plotted.");
-                        } else {
-                            console.warn("Seasonal chart NOT plotted. Parsed seasonalPlotJson is invalid or missing data/layout. Value:", seasonalPlotJson);
-                        }
-                    } catch (e_seasonal) {
-                        console.error("Error parsing JSON for decompositionPlots.seasonal:", e_seasonal, "Value snippet:", (typeof decompositionPlots.seasonal === 'string' ? decompositionPlots.seasonal.substring(0,100) + "..." : "[Seasonal data not a string]"));
-                    }
-                } else {
-                    console.warn("Seasonal plot rendering skipped. Conditions not met or div not found.");
-                     if (decompositionPlots && decompositionPlots.hasOwnProperty('seasonal')) {
-                        console.log("  - decompositionPlots.hasOwnProperty('seasonal'):", true);
-                        console.log("  - typeof decompositionPlots.seasonal:", typeof decompositionPlots.seasonal);
-                        console.log("  - decompositionPlots.seasonal.length > 2:", (typeof decompositionPlots.seasonal === 'string' ? decompositionPlots.seasonal.length > 2 : 'N/A'));
-                    } else if (decompositionPlots) {
-                        console.log("  - decompositionPlots.hasOwnProperty('seasonal'):", false);
-                    }
-                    console.log("  - document.getElementById('seasonalChart'):", !!document.getElementById('seasonalChart'));
-                }
-
-                // Plot Residual
-                if (decompositionPlots.hasOwnProperty('residual') && typeof decompositionPlots.residual === 'string' && decompositionPlots.residual.length > 2 && document.getElementById('residualChart')) {
-                    console.log("Attempting to plot Residual. JSON string:", decompositionPlots.residual.substring(0,100) + "...");
-                    try {
-                        let residualPlotJson = JSON.parse(decompositionPlots.residual);
-                        if (residualPlotJson && typeof residualPlotJson === 'object' && residualPlotJson.data && residualPlotJson.layout) {
-                            Plotly.newPlot('residualChart', residualPlotJson.data, residualPlotJson.layout, {responsive: true});
-                            console.log("Residual chart successfully plotted.");
-                        } else {
-                            console.warn("Residual chart NOT plotted. Parsed residualPlotJson is invalid or missing data/layout. Value:", residualPlotJson);
-                        }
-                    } catch (e_residual) {
-                        console.error("Error parsing JSON for decompositionPlots.residual:", e_residual, "Value snippet:", (typeof decompositionPlots.residual === 'string' ? decompositionPlots.residual.substring(0,100) + "..." : "[Residual data not a string]"));
-                    }
-                } else {
-                    console.warn("Residual plot rendering skipped. Conditions not met or div not found.");
-                    if (decompositionPlots && decompositionPlots.hasOwnProperty('residual')) {
-                        console.log("  - decompositionPlots.hasOwnProperty('residual'):", true);
-                        console.log("  - typeof decompositionPlots.residual:", typeof decompositionPlots.residual);
-                        console.log("  - decompositionPlots.residual.length > 2:", (typeof decompositionPlots.residual === 'string' ? decompositionPlots.residual.length > 2 : 'N/A'));
-                    } else if (decompositionPlots) {
-                        console.log("  - decompositionPlots.hasOwnProperty('residual'):", false);
-                    }
-                    console.log("  - document.getElementById('residualChart'):", !!document.getElementById('residualChart'));
-                }
+            // --- Wait for all plots to render then hide loader ---
+            if (plotPromises.length > 0) {
+                Promise.all(plotPromises)
+                    .then(() => {
+                        console.log("All Plotly plot promises have resolved.");
+                        // Use requestAnimationFrame to wait for the browser's next paint cycle
+                        requestAnimationFrame(() => {
+                            // You can even chain another one for extra safety with complex rendering
+                            requestAnimationFrame(() => {
+                                console.log("Hiding loader after requestAnimationFrame.");
+                                hidePageSpecificLoaderEffects();
+                            });
+                        });
+                    })
+                    .catch((error) => {
+                        console.error("An error occurred during Plotly rendering:", error);
+                        requestAnimationFrame(() => { 
+                            requestAnimationFrame(() => {
+                                hidePageSpecificLoaderEffects(); // Hide loader even if some plots fail
+                            });
+                        });
+                    });
+            } else {
+                console.log("No plots were initiated by Plotly. Hiding loader.");
+                // If no plots were even attempted, hide loader immediately.
+                // No need for rAF here as there's no rendering to wait for.
+                hidePageSpecificLoaderEffects(); 
             }
-            // --- END OF SECTION FOR DECOMPOSITION PLOTS ---
 
-        } finally {
-            setTimeout(hideLoader, 100); 
-        }
+        } catch(e) {
+            console.error("Major error in sales_overview main plotting script:", e);
+            // If a major synchronous error occurs before plotting, hide loader.
+            // No need for rAF here.
+            hidePageSpecificLoaderEffects(); 
+        } 
     });
 </script>
 {% endblock %}

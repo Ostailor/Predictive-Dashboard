@@ -12,7 +12,9 @@ from app.ml_models import (
     get_distinct_filter_options_from_db,
     get_sales_data_from_db_for_rf, # Assuming this fetches data appropriately
     perform_seasonal_decomposition, # Import the new function
-    import_sales_csv_to_db # Make sure this is imported
+    import_sales_csv_to_db, # Make sure this is imported
+    list_cached_rf_models, # Add this import
+    delete_cached_rf_model # Add this import
 )
 from app.models.data_models import SalesData
 from app.extensions import db
@@ -216,14 +218,7 @@ def data_management():
                     success_message += f"Records skipped (duplicates): {import_status['skipped_count']}."
                     flash(success_message, 'success')
                 
-                # Optionally, delete the file after processing if it's temporary
-                # try:
-                #     os.remove(file_path)
-                #     current_app.logger.info(f"Temporary file {file_path} removed after processing.")
-                # except OSError as e_remove:
-                #     current_app.logger.error(f"Error removing temporary file {file_path}: {e_remove}")
-
-            except Exception as e: # Catch errors related to file saving or other unexpected issues
+            except Exception as e: 
                 current_app.logger.error(f"Critical error during file upload or processing for {filename}: {e}")
                 flash(f'A critical error occurred with file "{filename}": {str(e)}', 'danger')
             
@@ -232,7 +227,57 @@ def data_management():
             flash('Invalid file type. Please upload a CSV file.', 'danger')
             return redirect(request.url)
 
-    return render_template('data_management.html', title='Data Management')
+    # GET request logic
+    cached_models_list = list_cached_rf_models()
+    return render_template('data_management.html', 
+                           title='Data Management', 
+                           cached_models=cached_models_list)
+
+@bp.route('/delete_cached_model/<store>/<item>', methods=['POST'])
+def delete_cached_model_route(store, item):
+    # Convert 'all' string back to None for the function call
+    store_filter = None if store == 'all' else store
+    item_filter = None if item == 'all' else item
+    
+    try:
+        current_app.logger.info(f"Received request to delete cached model for store: {store_filter}, item: {item_filter}")
+        success = delete_cached_rf_model(store_filter, item_filter)
+        if success:
+            flash(f"Successfully deleted cached model files for Store: {store}, Item: {item}.", 'success')
+        else:
+            flash(f"Could not delete all cached model files for Store: {store}, Item: {item}. Check logs.", 'warning')
+    except Exception as e:
+        current_app.logger.error(f"Error during cache deletion for store {store_filter}, item {item_filter}: {e}")
+        flash(f"An error occurred while trying to delete the cached model: {str(e)}", 'danger')
+        
+    return redirect(url_for('main.data_management'))
+
+@bp.route('/retrain_specific_model/<store>/<item>', methods=['POST'])
+def retrain_specific_model_route(store, item):
+    store_filter = None if store == 'all' else store
+    item_filter = None if item == 'all' else item
+
+    try:
+        current_app.logger.info(f"Triggering manual retraining of RF model for store: {store_filter}, item: {item_filter}...")
+        
+        model, _, _, mse, _, _ = train_sales_forecasting_model_rf(
+            store_filter=store_filter, 
+            item_filter=item_filter, 
+            force_retrain=True
+        )
+        
+        if model and mse is not None:
+            flash(f"Successfully retrained model for Store: {store}, Item: {item}. New Test MSE: {mse:.2f}", 'success')
+        elif model:
+            flash(f"Successfully retrained model for Store: {store}, Item: {item}. MSE not available.", 'success')
+        else:
+            flash(f"Failed to retrain model for Store: {store}, Item: {item}. Check logs for details.", 'danger')
+            
+    except Exception as e:
+        current_app.logger.error(f"Error during specific model retraining (Store: {store}, Item: {item}): {e}")
+        flash(f"An error occurred during model retraining for Store: {store}, Item: {item}: {str(e)}", 'danger')
+        
+    return redirect(url_for('main.data_management'))
 
 @bp.route('/trigger_rf_retrain', methods=['POST'])
 def trigger_rf_retrain():

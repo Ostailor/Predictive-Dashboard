@@ -5,53 +5,13 @@
 {% block head_scripts %}
     {{ super() }} 
     <style>
-        /* Full page loader for index.html navigation */
-        #navigationLoader {
-            position: fixed; /* Covers the entire viewport */
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(255, 255, 255, 0.85); /* Slightly more opaque for better loader visibility */
-            display: none; /* Hidden by default, shown by JS */
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 2000; /* High z-index to be on top of everything */
-            text-align: center;
-        }
-
-        #navigationLoader .spinner-border {
-            width: 3.5rem; /* Slightly larger spinner */
-            height: 3.5rem;
-            margin-bottom: 20px;
-            border-width: .3em; /* Thicker spinner border */
-        }
-
-        #navigationLoader p {
-            font-size: 1.4em; /* Larger text */
-            color: #2c3e50; /* Darker text for better contrast */
-            font-weight: 500;
-        }
-
-        /* Apply blur to main sections when body has 'navigating-blur' */
-        body.navigating-blur > #mainNav,
-        body.navigating-blur > #mainContent,
-        body.navigating-blur > #mainFooter {
-            filter: blur(4px);
-            transition: filter 0.1s linear; /* Smooth blur transition */
-        }
+        /* CSS for #navigationLoader and body.navigating-blur is now in base.html */
+        /* You can keep other index.html specific styles here if any */
     </style>
 {% endblock %}
 
-{% block body_overlays %} <!-- Place the loader here -->
-<div id="navigationLoader">
-    <div class="spinner-border text-primary" role="status">
-        <!-- For Bootstrap 5, use visually-hidden. For BS4, use sr-only -->
-        <span class="sr-only">Loading...</span> <!-- MODIFIED: Changed visually-hidden to sr-only for Bootstrap 4 -->
-    </div>
-    <p>Loading Model & Sales Data...</p>
-</div>
+{% block body_overlays %}
+<!-- The #navigationLoader DIV is now in base.html -->
 {% endblock %}
 
 {% block content %}
@@ -76,18 +36,10 @@
 {% block body_scripts %}
     {{ super() }} 
     <script>
-        document.getElementById('viewSalesOverviewBtn').addEventListener('click', function(event) {
-            event.preventDefault(); 
-            
-            document.getElementById('navigationLoader').style.display = 'flex';
-            document.body.classList.add('navigating-blur'); // This class on body triggers targeted blur
-            
-            const targetUrl = this.href;
-
-            // Short delay to ensure loader UI updates before navigation blocks rendering
-            setTimeout(function() {
-                window.location.href = targetUrl;
-            }, 50); 
-        });
+        // The specific click listener for 'viewSalesOverviewBtn' to show #navigationLoader
+        // and its event.preventDefault() is removed.
+        // The global click listener in base.html will handle showing the loader
+        // and allow default navigation.
+        console.log("Index.html body scripts loaded. Loader logic is now global.");
     </script>
 {% endblock %}
