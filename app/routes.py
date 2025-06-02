@@ -26,9 +26,6 @@ MAX_POINTS_TO_PLOT = 5000
 # Path for the cached, plot-ready aggregated and downsampled test data
 CACHED_DAILY_TEST_PLOT_DF_PATH = 'daily_test_plot_for_graph.pkl' # Not used for this issue
 
-# MODEL_PATH = 'sales_forecaster_rf_model.joblib' # This global can be removed or kept as a general default if needed elsewhere
-                                                # but for this route, the dynamic path is key.
-
 
 def downsample_for_plot(df, date_col='date'):
     if df.empty or len(df) <= MAX_POINTS_TO_PLOT:

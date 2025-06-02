@@ -34,11 +34,3 @@ class SalesData(db.Model):
 
     def __repr__(self):
         return f'<SalesData {self.date} Store {self.store} Item {self.item} Sales {self.sales}>'
-
-# Add other models here as needed, e.g., WebsiteTraffic
-# class WebsiteTraffic(db.Model):
-#     id = db.Column(db.Integer, primary_key=True)
-#     timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
-#     page_views = db.Column(db.Integer, nullable=False)
-#     unique_visitors = db.Column(db.Integer)
-#     source = db.Column(db.String(100)) # e.g., 'organic', 'referral', 'direct'

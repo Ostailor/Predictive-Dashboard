@@ -36,10 +36,6 @@
 {% block body_scripts %}
     {{ super() }} 
     <script>
-        // The specific click listener for 'viewSalesOverviewBtn' to show #navigationLoader
-        // and its event.preventDefault() is removed.
-        // The global click listener in base.html will handle showing the loader
-        // and allow default navigation.
         console.log("Index.html body scripts loaded. Loader logic is now global.");
     </script>
 {% endblock %}
