@@ -1,19 +1,41 @@
 import pandas as pd
-import numpy as np
-from app import db
-from app.models.data_models import SalesData
-from sqlalchemy import func
+from statsmodels.tsa.seasonal import seasonal_decompose
+from flask import current_app, jsonify # Ensure jsonify is imported if you plan to use it directly here, though typically done in routes
+import os
+import joblib
+import json
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+from .models.data_models import SalesData # Assuming this is how you import SalesData
+from .extensions import db # Assuming this is how you import db
+from sqlalchemy import distinct
 import pmdarima as pm
 import warnings
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor # <--- ADD THIS LINE
-from sklearn.metrics import mean_squared_error # Already there, but good to check
-import joblib
-import pandas as pd
-import json # For saving MSE
 
-print(f"DEBUG: pmdarima version being used: {pm.__version__}")
+# print(f"DEBUG: pmdarima version being used: {pm.__version__}") # Removed
 warnings.filterwarnings("ignore", message="'force_all_finite' was renamed to 'ensure_all_finite' in 1.6 and will be removed in 1.8.", category=FutureWarning)
+
+MODEL_CACHE_DIR_NAME = 'rf_models_cache'
+
+def _get_rf_cache_paths(store_filter, item_filter):
+    """Generates cache file paths for a given store/item cohort."""
+    instance_path = current_app.instance_path
+    cache_base_dir = os.path.join(instance_path, MODEL_CACHE_DIR_NAME)
+    os.makedirs(cache_base_dir, exist_ok=True)
+
+    store_str = str(store_filter) if store_filter is not None else 'all'
+    item_str = str(item_filter) if item_filter is not None else 'all'
+    
+    base_filename = f"rf_model_store_{store_str}_item_{item_str}"
+    
+    paths = {
+        "model": os.path.join(cache_base_dir, f"{base_filename}.joblib"),
+        "train_df": os.path.join(cache_base_dir, f"{base_filename}_train_df.pkl"),
+        "test_df": os.path.join(cache_base_dir, f"{base_filename}_test_df.pkl"),
+        "mse": os.path.join(cache_base_dir, f"{base_filename}_mse.json"),
+    }
+    return paths
 
 # --- CSV Loading and Importing Functions ---
 
@@ -345,16 +367,33 @@ def predict_future_sales_pmdarima(fitted_model, periods=30, alpha=0.05): # Renam
 
 # --- RandomForest Model Training and Prediction Functions ---
 
-def get_sales_data_from_db_for_rf(): # Renamed for clarity if needed, or ensure SalesData model is consistent
+def get_sales_data_from_db_for_rf(store_filter=None, item_filter=None):
     """
-    Fetch sales data from the database (date, store, item, sales).
+    Fetch sales data from the database (date, store, item, sales),
+    optionally filtered by store and/or item.
     """
-    query = SalesData.query.all()
-    # Ensure SalesData model has date, store, item, sales columns
-    df = pd.DataFrame([(d.date, d.store, d.item, d.sales) for d in query],
+    query_obj = SalesData.query
+
+    if store_filter and store_filter != 'all':
+        query_obj = query_obj.filter(SalesData.store == store_filter)
+    if item_filter and item_filter != 'all':
+        query_obj = query_obj.filter(SalesData.item == item_filter)
+    
+    sales_records = query_obj.all()
+    
+    df = pd.DataFrame([(d.date, d.store, d.item, d.sales) for d in sales_records],
                       columns=['date', 'store', 'item', 'sales'])
-    df['date'] = pd.to_datetime(df['date'])
+    if not df.empty:
+        df['date'] = pd.to_datetime(df['date'])
     return df
+
+def get_distinct_filter_options_from_db():
+    """
+    Gets distinct store and item values from the SalesData table.
+    """
+    stores = ['all'] + [s[0] for s in db.session.query(distinct(SalesData.store)).order_by(SalesData.store).all()]
+    items = ['all'] + [i[0] for i in db.session.query(distinct(SalesData.item)).order_by(SalesData.item).all()]
+    return {"stores": stores, "items": items}
 
 def preprocess_data_for_rf(df): # Renamed for clarity
     """
@@ -373,117 +412,215 @@ def preprocess_data_for_rf(df): # Renamed for clarity
     return df_processed
 
 # This is the RandomForest version
-def train_sales_forecasting_model_rf(data_source='db', csv_path=None):
-    """
-    Train a sales forecasting model using RandomForest.
-    Saves the model, training plot data, test plot data, and test MSE.
-    Returns the model, and DataFrames for plotting training actuals, 
-    test actuals, and test predictions, plus the test MSE.
-    """
-    # Define paths for saving artifacts
-    MODEL_PATH = 'sales_forecaster_rf_model.joblib'
-    TRAIN_DF_PATH = 'train_plot_df.pkl'
-    TEST_DF_PATH = 'test_plot_df.pkl'
-    TEST_MSE_PATH = 'test_mse.json'
+def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filter=None, item_filter=None):
+    cache_paths = _get_rf_cache_paths(store_filter, item_filter)
+    MODEL_PATH = cache_paths["model"]
+    TRAIN_DF_PATH = cache_paths["train_df"]
+    TEST_DF_PATH = cache_paths["test_df"]
+    MSE_PATH = cache_paths["mse"]
+    # Add a path for feature importances
+    IMPORTANCES_PATH = os.path.join(os.path.dirname(MODEL_PATH), f"rf_model_store_{store_filter if store_filter is not None else 'all'}_item_{item_filter if item_filter is not None else 'all'}_importances.json")
 
-    if data_source == 'csv' and csv_path:
-        df = load_sales_csv(csv_path)
-    elif data_source == 'db':
-        df = get_sales_data_from_db_for_rf()
+
+    if os.path.exists(MODEL_PATH) and \
+       os.path.exists(TRAIN_DF_PATH) and \
+       os.path.exists(TEST_DF_PATH) and \
+       os.path.exists(MSE_PATH) and \
+       os.path.exists(IMPORTANCES_PATH): # Check for importances cache
+        try:
+            model = joblib.load(MODEL_PATH)
+            train_plot_df = pd.read_pickle(TRAIN_DF_PATH)
+            test_plot_df = pd.read_pickle(TEST_DF_PATH)
+            with open(MSE_PATH, 'r') as f:
+                mse_data = json.load(f)
+            test_mse = mse_data.get('test_mse', float('nan'))
+            with open(IMPORTANCES_PATH, 'r') as f: # Load cached importances
+                feature_importances_data = json.load(f)
+            
+            return model, train_plot_df, test_plot_df, test_mse, MODEL_PATH, feature_importances_data
+        except Exception as e:
+            print(f"Error loading cached model or artifacts (including importances): {e}. Retraining.")
+
+    if data_source == 'db':
+        df = get_sales_data_from_db_for_rf(store_filter=store_filter, item_filter=item_filter)
+        if df.empty:
+            return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None # Added None for importances
+    elif data_source == 'csv' and csv_path:
+        df = load_sales_csv(csv_path) 
+        if df.empty:
+            return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
     else:
-        print("Invalid data source or missing CSV path for RF model.")
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan')
+        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
 
-    if df.empty:
-        print("No data to train the RF model.")
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan')
-
+    if df.shape[0] < 20: 
+        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
+        
     df_processed = preprocess_data_for_rf(df.copy())
-    if df_processed.empty or 'date' not in df_processed.columns:
-        print("Data preprocessing failed or 'date' column is missing after preprocessing.")
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan')
+    if df_processed.empty or 'sales' not in df_processed.columns or df_processed.shape[0] < 2:
+        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
 
-    features = ['store', 'item', 'dayofweek', 'month', 'year', 'dayofyear'] 
-    target = 'sales'
-
-    if not all(feature in df_processed.columns for feature in features) or target not in df_processed.columns:
-        print(f"Missing required columns for RF training. Need: {features + [target]}")
-        return None, pd.DataFrame(), pd.DataFrame(), float('nan')
-    
-    X = df_processed[features]
-    y = df_processed[target]
+    X = df_processed.drop(['sales', 'date'], axis=1)
+    y = df_processed['sales']
     dates_for_split = df_processed['date']
+    
+    feature_names = X.columns.tolist() # Get feature names
+
+    if len(X) < 2 or len(y) < 2: 
+        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
 
     X_train, X_test, y_train, y_test, dates_train, dates_test = train_test_split(
-        X, y, dates_for_split, test_size=0.2, random_state=42
+        X, y, dates_for_split, test_size=0.2, random_state=42, stratify=None
     )
+    
+    if X_train.empty or X_test.empty:
+        return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
 
-    model = RandomForestRegressor(n_estimators=100, random_state=42) 
+    model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1) 
     model.fit(X_train, y_train)
 
     predictions_on_test = model.predict(X_test)
     test_mse = mean_squared_error(y_test, predictions_on_test)
-    print(f"RF Model trained on training set. Test MSE: {test_mse}")
+    
+    # Get feature importances
+    importances = model.feature_importances_
+    feature_importances_data = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)
 
-    # Save the model and plot artifacts
+
     try:
         joblib.dump(model, MODEL_PATH)
-        print(f"RF Model saved to {MODEL_PATH}")
         
-        train_plot_df = pd.DataFrame({'date': dates_train, 'actual_sales': y_train}).sort_values(by='date')
+        train_plot_df = pd.DataFrame({'date': dates_train, 'sales': y_train}).sort_values(by='date') # Changed 'actual_sales' to 'sales'
         test_plot_df = pd.DataFrame({
             'date': dates_test,
-            'actual_sales': y_test,
-            'predicted_sales': predictions_on_test
+            'sales': y_test, # Changed 'actual_sales' to 'sales'
+            'predictions': predictions_on_test # Changed 'predicted_sales' to 'predictions' for consistency with routes.py if needed, or keep as is if routes.py uses 'predictions' for this df
         }).sort_values(by='date')
 
         train_plot_df.to_pickle(TRAIN_DF_PATH)
-        print(f"Training plot data saved to {TRAIN_DF_PATH}")
         test_plot_df.to_pickle(TEST_DF_PATH)
-        print(f"Test plot data saved to {TEST_DF_PATH}")
-        with open(TEST_MSE_PATH, 'w') as f:
+        with open(MSE_PATH, 'w') as f:
             json.dump({'test_mse': test_mse}, f)
-        print(f"Test MSE saved to {TEST_MSE_PATH}")
+        with open(IMPORTANCES_PATH, 'w') as f: # Save feature importances
+            json.dump(feature_importances_data, f)
 
     except Exception as e:
         print(f"Error saving model or plot artifacts: {e}")
-        # Decide if you want to return None or the data even if saving fails
-        # For now, we'll still return the data for the current request.
+        return model, train_plot_df, test_plot_df, test_mse, None, feature_importances_data # Return importances even if save fails
 
-    return model, train_plot_df, test_plot_df, test_mse
+    return model, train_plot_df, test_plot_df, test_mse, MODEL_PATH, feature_importances_data
 
 # This is the RandomForest version
-def predict_future_sales_rf(future_data_df, model_path='sales_forecaster_rf_model.joblib'): # Renamed for clarity
+def predict_future_sales_rf(model, train_df, n_periods, store_id, item_id):
     """
     Predict future sales using the trained RandomForest model.
-    future_data_df should have 'date', 'store', 'item' for preprocessing.
+    - model: The trained RandomForest model object.
+    - train_df: DataFrame of the training data, used to get the last date.
+                Must contain a 'date' column.
+    - n_periods: Number of future periods (days) to predict.
+    - store_id: The store for which to predict. Can be None if model is for 'all stores'.
+    - item_id: The item for which to predict. Can be None if model is for 'all items'.
     """
+    if model is None:
+        print("Error: Model is None. Cannot make predictions.")
+        return pd.DataFrame(), []
+
+    if not hasattr(model, 'feature_names_in_'):
+        print("Error: Model does not have 'feature_names_in_'. Cannot determine features for prediction.")
+        return pd.DataFrame(), []
+        
+    model_expected_features = model.feature_names_in_
+
+    if train_df.empty or 'date' not in train_df.columns:
+        print("Error: Training data is empty or 'date' column missing. Cannot determine start for future dates.")
+        return pd.DataFrame(), []
+
+    last_date = pd.to_datetime(train_df['date']).max()
+    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=n_periods, freq='D')
+
+    # Create a base DataFrame for future predictions
+    future_df = pd.DataFrame({'date': future_dates})
+
+    # Add store and item columns if they were features in the model
+    if 'store' in model_expected_features:
+        if store_id is None:
+            # This model was trained with 'store' as a feature (e.g., for an "all stores" filter where store IDs varied).
+            # Predicting a single series for "all stores" is problematic without a specific store value for the feature.
+            print("Error: Model expects 'store' feature, but no specific store_id provided for prediction (e.g. 'all stores' selected). "
+                  "This requires a strategy for setting the 'store' feature value for future dates.")
+            return pd.DataFrame(), []
+        future_df['store'] = store_id
+    
+    if 'item' in model_expected_features:
+        if item_id is None:
+            # Similar to 'store', if 'item' is a feature and item_id is None.
+            print("Error: Model expects 'item' feature, but no specific item_id provided for prediction (e.g. 'all items' selected). "
+                  "This requires a strategy for setting the 'item' feature value for future dates.")
+            return pd.DataFrame(), []
+        future_df['item'] = item_id
+    
+    # Preprocess the future_df to create date-based features
+    # Uses the existing preprocess_data_for_rf from your file (lines 394-407)
+    future_features_df = preprocess_data_for_rf(future_df.copy())
+    
+    if future_features_df.empty:
+        print("Preprocessing future data resulted in an empty DataFrame.")
+        return pd.DataFrame(), []
+
+    # Ensure X_future has the same columns as the model was trained on, in the correct order.
+    # The preprocess_data_for_rf keeps the original 'date' column, but it's not part of model_expected_features.
+    # Selecting by model_expected_features handles this.
     try:
-        model = joblib.load(model_path)
-    except FileNotFoundError:
-        print(f"Error: RF Model file {model_path} not found. Train the model first.")
-        return None
+        X_future = future_features_df[model_expected_features]
+    except KeyError as e:
+        print(f"Error creating feature set for prediction. Missing columns: {e}. "
+              f"Model expects: {model_expected_features}. Available: {future_features_df.columns.tolist()}")
+        return pd.DataFrame(), []
+
+    if X_future.empty:
+        print("Future features DataFrame is empty after selection. Cannot make predictions.")
+        return pd.DataFrame(), []
+
+    try:
+        predicted_sales = model.predict(X_future)
     except Exception as e:
-        print(f"Error loading RF model: {e}")
-        return None
+        print(f"Error during model prediction: {e}")
+        print(f"Columns in X_future submitted for prediction: {X_future.columns.tolist()}")
+        return pd.DataFrame(), []
 
-    if 'date' not in future_data_df.columns or 'store' not in future_data_df.columns or 'item' not in future_data_df.columns:
-        print("Error: future_data_df for RF model must contain 'date', 'store', and 'item' columns.")
-        return None
-        
-    df_processed = preprocess_data_for_rf(future_data_df.copy()) 
+    results_df = pd.DataFrame({
+        'date': future_dates,
+        'predicted_sales': predicted_sales
+    })
+    
+    return results_df, X_future.columns.tolist()
 
-    expected_features = ['store', 'item', 'dayofweek', 'month', 'year', 'dayofyear'] 
-    
-    missing_features = [f for f in expected_features if f not in df_processed.columns]
-    if missing_features:
-        print(f"Error: Missing features in preprocessed data for RF prediction: {missing_features}")
-        return None
-        
-    X_future = df_processed[expected_features]
-    
-    predictions = model.predict(X_future)
-    return predictions
+def perform_seasonal_decomposition(series, model='additive', period=365):
+    """
+    Performs seasonal decomposition on a time series.
+
+    Args:
+        series (pd.Series): Time series data, indexed by date.
+        model (str): Type of decomposition ('additive' or 'multiplicative').
+        period (int): The period of the seasonality. Default is 365 for daily data.
+                      For weekly data with yearly seasonality, it might be 52.
+                      Adjust based on your data's characteristics.
+
+    Returns:
+        tuple: (trend, seasonal, residual) pandas Series.
+               Returns (None, None, None) if decomposition fails.
+    """
+    if series.empty or len(series) < 2 * period: # Ensure enough data for decomposition
+        # print(f"DEBUG: Series too short for decomposition. Length: {len(series)}, Required: {2 * period}")
+        return None, None, None
+    try:
+        decomposition = seasonal_decompose(series, model=model, period=period, extrapolate_trend='freq')
+        trend = decomposition.trend
+        seasonal = decomposition.seasonal
+        resid = decomposition.resid
+        return trend, seasonal, resid
+    except Exception as e:
+        print(f"Error during seasonal decomposition: {e}")
+        return None, None, None
 
 # Example of how you might call these:
 if __name__ == '__main__':
