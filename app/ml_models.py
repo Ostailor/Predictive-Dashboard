@@ -59,38 +59,48 @@ def import_sales_csv_to_db(csv_path):
     """
     Import sales data from a CSV file into the SalesData table in the database.
     Optimized for speed by reducing per-row DB queries.
+    Returns a dictionary with import status:
+    {
+        'imported_count': int,
+        'skipped_count': int,
+        'total_processed': int,
+        'error_message': str or None
+    }
     """
     df = load_sales_csv(csv_path)
     if df.empty:
-        print("CSV data is empty. Aborting import to DB.")
-        return
+        current_app.logger.warning("CSV data is empty. Aborting import to DB.")
+        return {
+            'imported_count': 0,
+            'skipped_count': 0,
+            'total_processed': 0,
+            'error_message': "CSV file was empty or could not be loaded."
+        }
+
+    total_processed_in_csv = len(df)
+    imported_count = 0
+    skipped_count = 0
+    error_message = None
 
     try:
         # 1. Fetch existing unique keys (date, store, item) from the database into a set
-        print("Fetching existing sales records identifiers from DB...")
+        current_app.logger.info("Fetching existing sales records identifiers from DB...")
         existing_records_query = db.session.query(SalesData.date, SalesData.store, SalesData.item).all()
-        # Ensure dates from DB are datetime.date objects if they aren't already
         existing_records_set = set(
             (
-                record.date if hasattr(record.date, 'year') else pd.to_datetime(record.date).date(), # Ensure it's a date object
+                record.date if hasattr(record.date, 'year') else pd.to_datetime(record.date).date(),
                 record.store,
                 record.item
             ) for record in existing_records_query
         )
-        print(f"Found {len(existing_records_set)} existing unique records in the database.")
+        current_app.logger.info(f"Found {len(existing_records_set)} existing unique records in the database.")
 
         new_records_to_insert = []
-        skipped_count = 0
         
-        # Prepare data from DataFrame for comparison and insertion
-        # Ensure 'date' column is datetime.date objects
-        # Pandas read_csv with parse_dates creates Timestamps; .dt.date converts to datetime.date
         df['date_obj'] = df['date'].dt.date 
 
-        print("Processing CSV data and identifying new records...")
+        current_app.logger.info("Processing CSV data and identifying new records...")
         for row_dict in df.to_dict(orient='records'):
-            # Create a tuple for the current record's unique key
-            # row_dict['date'] is a pandas Timestamp, use 'date_obj' we created
             current_record_key = (
                 row_dict['date_obj'], 
                 row_dict['store'],
@@ -99,7 +109,7 @@ def import_sales_csv_to_db(csv_path):
 
             if current_record_key not in existing_records_set:
                 new_records_to_insert.append({
-                    'date': row_dict['date_obj'], # Use the datetime.date object
+                    'date': row_dict['date_obj'],
                     'store': row_dict['store'],
                     'item': row_dict['item'],
                     'sales': row_dict['sales']
@@ -108,24 +118,32 @@ def import_sales_csv_to_db(csv_path):
                 skipped_count += 1
         
         if skipped_count > 0:
-            print(f"Skipped {skipped_count} records that already exist in the database.")
+            current_app.logger.info(f"Skipped {skipped_count} records that already exist in the database.")
 
-        # 3. Bulk insert new records if any
         if new_records_to_insert:
-            print(f"Attempting to bulk insert {len(new_records_to_insert)} new records...")
+            current_app.logger.info(f"Attempting to bulk insert {len(new_records_to_insert)} new records...")
             db.session.bulk_insert_mappings(SalesData, new_records_to_insert)
             db.session.commit()
-            print(f"Successfully bulk inserted {len(new_records_to_insert)} new records into the database.")
+            imported_count = len(new_records_to_insert)
+            current_app.logger.info(f"Successfully bulk inserted {imported_count} new records into the database.")
         else:
-            print("No new records to insert.")
+            current_app.logger.info("No new records to insert.")
         
-        print(f"Data import process from {csv_path} completed.")
+        current_app.logger.info(f"Data import process from {csv_path} completed.")
 
     except Exception as e:
         db.session.rollback()
-        print(f"Error importing CSV to database: {e}")
+        error_message = f"Error importing CSV to database: {str(e)}"
+        current_app.logger.error(error_message)
         import traceback
         traceback.print_exc()
+    
+    return {
+        'imported_count': imported_count,
+        'skipped_count': skipped_count,
+        'total_processed': total_processed_in_csv,
+        'error_message': error_message
+    }
 
 def get_daily_sales_data():
     """

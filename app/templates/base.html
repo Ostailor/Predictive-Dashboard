@@ -25,7 +25,9 @@
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('main.sales_overview') }}">Sales Overview</a>
                 </li>
-                <!-- Add other navigation links here later -->
+                <li class="nav-item"> {# Add this for the new page #}
+                    <a class="nav-link" href="{{ url_for('main.data_management') }}">Data Management</a>
+                </li>
             </ul>
         </div>
     </nav>

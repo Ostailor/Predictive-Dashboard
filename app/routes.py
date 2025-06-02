@@ -1,14 +1,18 @@
-from flask import Blueprint, render_template, request, jsonify, current_app
+from flask import Blueprint, render_template, request, jsonify, current_app, flash, redirect, url_for
 import pandas as pd
 import plotly.graph_objs as go
 import plotly.utils
 import json
+import os
+from werkzeug.utils import secure_filename
+
 from app.ml_models import (
     train_sales_forecasting_model_rf, 
     predict_future_sales_rf, 
     get_distinct_filter_options_from_db,
     get_sales_data_from_db_for_rf, # Assuming this fetches data appropriately
-    perform_seasonal_decomposition # Import the new function
+    perform_seasonal_decomposition, # Import the new function
+    import_sales_csv_to_db # Make sure this is imported
 )
 from app.models.data_models import SalesData
 from app.extensions import db
@@ -169,6 +173,66 @@ def sales_overview():
                            model_mse=f"{model_mse:.2f}" if model_mse is not None and not pd.isna(model_mse) else "N/A",
                            test_data_exists=not raw_test_plot_df.empty,
                            decomposition_plots_json=decomposition_plots_json)
+
+# Define a helper for allowed extensions (optional but good for security)
+ALLOWED_EXTENSIONS = {'csv'}
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@bp.route('/data_management', methods=['GET', 'POST'])
+def data_management():
+    if request.method == 'POST':
+        if 'sales_csv' not in request.files:
+            flash('No file part selected.', 'warning')
+            return redirect(request.url)
+        file = request.files['sales_csv']
+        if file.filename == '':
+            flash('No file selected.', 'warning')
+            return redirect(request.url)
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            
+            upload_folder = current_app.config.get('UPLOAD_FOLDER')
+            if not upload_folder:
+                upload_folder = os.path.join(current_app.instance_path, 'uploads')
+                os.makedirs(upload_folder, exist_ok=True)
+            
+            file_path = os.path.join(upload_folder, filename)
+            
+            try:
+                file.save(file_path)
+                current_app.logger.info(f"Uploaded file saved to {file_path}")
+                
+                import_status = import_sales_csv_to_db(file_path)
+                
+                if import_status['error_message']:
+                    flash(f"Error processing file '{filename}': {import_status['error_message']}", 'danger')
+                else:
+                    success_message = f"File '{filename}' processed. "
+                    success_message += f"Total records in CSV: {import_status['total_processed']}. "
+                    success_message += f"New records imported: {import_status['imported_count']}. "
+                    success_message += f"Records skipped (duplicates): {import_status['skipped_count']}."
+                    flash(success_message, 'success')
+                
+                # Optionally, delete the file after processing if it's temporary
+                # try:
+                #     os.remove(file_path)
+                #     current_app.logger.info(f"Temporary file {file_path} removed after processing.")
+                # except OSError as e_remove:
+                #     current_app.logger.error(f"Error removing temporary file {file_path}: {e_remove}")
+
+            except Exception as e: # Catch errors related to file saving or other unexpected issues
+                current_app.logger.error(f"Critical error during file upload or processing for {filename}: {e}")
+                flash(f'A critical error occurred with file "{filename}": {str(e)}', 'danger')
+            
+            return redirect(url_for('main.data_management'))
+        else:
+            flash('Invalid file type. Please upload a CSV file.', 'danger')
+            return redirect(request.url)
+
+    return render_template('data_management.html', title='Data Management')
 
 @bp.route('/get_predictions')
 def get_predictions_route():
