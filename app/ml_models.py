@@ -430,35 +430,38 @@ def preprocess_data_for_rf(df): # Renamed for clarity
     return df_processed
 
 # This is the RandomForest version
-def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filter=None, item_filter=None):
+def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filter=None, item_filter=None, force_retrain=False): # Add force_retrain
     cache_paths = _get_rf_cache_paths(store_filter, item_filter)
     MODEL_PATH = cache_paths["model"]
     TRAIN_DF_PATH = cache_paths["train_df"]
     TEST_DF_PATH = cache_paths["test_df"]
     MSE_PATH = cache_paths["mse"]
-    # Add a path for feature importances
     IMPORTANCES_PATH = os.path.join(os.path.dirname(MODEL_PATH), f"rf_model_store_{store_filter if store_filter is not None else 'all'}_item_{item_filter if item_filter is not None else 'all'}_importances.json")
 
+    if not force_retrain: # Only try to load from cache if not forcing retrain
+        if os.path.exists(MODEL_PATH) and \
+           os.path.exists(TRAIN_DF_PATH) and \
+           os.path.exists(TEST_DF_PATH) and \
+           os.path.exists(MSE_PATH) and \
+           os.path.exists(IMPORTANCES_PATH):
+            try:
+                current_app.logger.info(f"Attempting to load cached RF model and artifacts for store '{store_filter}', item '{item_filter}'.")
+                model = joblib.load(MODEL_PATH)
+                train_plot_df = pd.read_pickle(TRAIN_DF_PATH)
+                test_plot_df = pd.read_pickle(TEST_DF_PATH)
+                with open(MSE_PATH, 'r') as f:
+                    mse_data = json.load(f)
+                test_mse = mse_data.get('test_mse', float('nan'))
+                with open(IMPORTANCES_PATH, 'r') as f:
+                    feature_importances_data = json.load(f)
+                current_app.logger.info(f"Successfully loaded cached RF model and artifacts.")
+                return model, train_plot_df, test_plot_df, test_mse, MODEL_PATH, feature_importances_data
+            except Exception as e:
+                current_app.logger.warning(f"Error loading cached RF model or artifacts: {e}. Proceeding to retrain.")
+    else:
+        current_app.logger.info(f"Force retrain is True for RF model (store: '{store_filter}', item: '{item_filter}'). Skipping cache load.")
 
-    if os.path.exists(MODEL_PATH) and \
-       os.path.exists(TRAIN_DF_PATH) and \
-       os.path.exists(TEST_DF_PATH) and \
-       os.path.exists(MSE_PATH) and \
-       os.path.exists(IMPORTANCES_PATH): # Check for importances cache
-        try:
-            model = joblib.load(MODEL_PATH)
-            train_plot_df = pd.read_pickle(TRAIN_DF_PATH)
-            test_plot_df = pd.read_pickle(TEST_DF_PATH)
-            with open(MSE_PATH, 'r') as f:
-                mse_data = json.load(f)
-            test_mse = mse_data.get('test_mse', float('nan'))
-            with open(IMPORTANCES_PATH, 'r') as f: # Load cached importances
-                feature_importances_data = json.load(f)
-            
-            return model, train_plot_df, test_plot_df, test_mse, MODEL_PATH, feature_importances_data
-        except Exception as e:
-            print(f"Error loading cached model or artifacts (including importances): {e}. Retraining.")
-
+    current_app.logger.info(f"Training new RF model for store '{store_filter}', item '{item_filter}'. Data source: {data_source}")
     if data_source == 'db':
         df = get_sales_data_from_db_for_rf(store_filter=store_filter, item_filter=item_filter)
         if df.empty:
@@ -471,6 +474,7 @@ def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filt
         return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
 
     if df.shape[0] < 20: 
+        current_app.logger.warning(f"Not enough data points ({df.shape[0]}) for RF model training. Required >= 20.")
         return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
         
     df_processed = preprocess_data_for_rf(df.copy())
@@ -484,6 +488,7 @@ def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filt
     feature_names = X.columns.tolist() # Get feature names
 
     if len(X) < 2 or len(y) < 2: 
+        current_app.logger.warning("Not enough data after processing for train/test split in RF model.")
         return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
 
     X_train, X_test, y_train, y_test, dates_train, dates_test = train_test_split(
@@ -491,10 +496,12 @@ def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filt
     )
     
     if X_train.empty or X_test.empty:
+        current_app.logger.warning("Training or testing set is empty after split for RF model.")
         return None, pd.DataFrame(), pd.DataFrame(), float('nan'), None, None
 
     model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1) 
     model.fit(X_train, y_train)
+    current_app.logger.info(f"RF Model fitting complete for store '{store_filter}', item '{item_filter}'.")
 
     predictions_on_test = model.predict(X_test)
     test_mse = mean_squared_error(y_test, predictions_on_test)
@@ -507,23 +514,23 @@ def train_sales_forecasting_model_rf(data_source='db', csv_path=None, store_filt
     try:
         joblib.dump(model, MODEL_PATH)
         
-        train_plot_df = pd.DataFrame({'date': dates_train, 'sales': y_train}).sort_values(by='date') # Changed 'actual_sales' to 'sales'
+        train_plot_df = pd.DataFrame({'date': dates_train, 'sales': y_train}).sort_values(by='date')
         test_plot_df = pd.DataFrame({
             'date': dates_test,
-            'sales': y_test, # Changed 'actual_sales' to 'sales'
-            'predictions': predictions_on_test # Changed 'predicted_sales' to 'predictions' for consistency with routes.py if needed, or keep as is if routes.py uses 'predictions' for this df
+            'sales': y_test, 
+            'predictions': predictions_on_test 
         }).sort_values(by='date')
 
         train_plot_df.to_pickle(TRAIN_DF_PATH)
         test_plot_df.to_pickle(TEST_DF_PATH)
         with open(MSE_PATH, 'w') as f:
             json.dump({'test_mse': test_mse}, f)
-        with open(IMPORTANCES_PATH, 'w') as f: # Save feature importances
+        with open(IMPORTANCES_PATH, 'w') as f: 
             json.dump(feature_importances_data, f)
-
+        current_app.logger.info(f"Successfully saved new RF model and artifacts to cache for store '{store_filter}', item '{item_filter}'.")
     except Exception as e:
-        print(f"Error saving model or plot artifacts: {e}")
-        return model, train_plot_df, test_plot_df, test_mse, None, feature_importances_data # Return importances even if save fails
+        current_app.logger.error(f"Error saving RF model or plot artifacts to cache: {e}")
+        return model, train_plot_df, test_plot_df, test_mse, None, feature_importances_data
 
     return model, train_plot_df, test_plot_df, test_mse, MODEL_PATH, feature_importances_data
 

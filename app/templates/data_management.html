@@ -28,7 +28,15 @@
         <button type="submit" class="btn btn-primary mt-2">Upload and Import</button>
     </form>
 
-    <hr>
+    <hr class="my-4"> {# Added margin for better separation #}
+
+    <h4>Model Management</h4>
+    <p>You can manually retrain the primary sales forecasting model (Random Forest for all stores/items). This is recommended after uploading new sales data.</p>
+    <form method="POST" action="{{ url_for('main.trigger_rf_retrain') }}">
+        <button type="submit" class="btn btn-warning">Retrain Global Sales Model</button>
+    </form>
+    
+    <hr class="my-4"> {# Added margin #}
     <p><a href="{{ url_for('main.sales_overview') }}">Back to Sales Overview</a></p>
 </div>
 {% endblock %}

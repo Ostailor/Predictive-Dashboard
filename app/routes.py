@@ -234,6 +234,31 @@ def data_management():
 
     return render_template('data_management.html', title='Data Management')
 
+@bp.route('/trigger_rf_retrain', methods=['POST'])
+def trigger_rf_retrain():
+    try:
+        current_app.logger.info("Triggering manual retraining of RF model (all stores/all items)...")
+        # Call the training function with force_retrain=True
+        # We are retraining the global model (store_filter=None, item_filter=None)
+        model, _, _, mse, _, _ = train_sales_forecasting_model_rf(
+            store_filter=None, 
+            item_filter=None, 
+            force_retrain=True
+        )
+        
+        if model and mse is not None:
+            flash(f"Successfully retrained the global Random Forest sales model. New Test MSE: {mse:.2f}", 'success')
+        elif model:
+            flash("Successfully retrained the global Random Forest sales model. MSE not available.", 'success')
+        else:
+            flash("Failed to retrain the global Random Forest sales model. Check logs for details.", 'danger')
+            
+    except Exception as e:
+        current_app.logger.error(f"Error during manual RF model retraining: {e}")
+        flash(f"An error occurred during model retraining: {str(e)}", 'danger')
+        
+    return redirect(url_for('main.data_management'))
+
 @bp.route('/get_predictions')
 def get_predictions_route():
     # This route will handle AJAX requests for getting predictions
