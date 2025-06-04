@@ -15,7 +15,7 @@ The Predictive Sales Dashboard is a web application designed to provide insightf
     *   Feature importance plots for the Random Forest model.
     *   Time series decomposition plots (trend, seasonal, residual components).
 *   **Data Management:**
-    *   Upload sales data via CSV files ([`app/routes.py#L214`](predictive_dashboard/app/routes.py#L214)).
+    *   Upload sales data via CSV files ([`app/routes.py#L214`](app/routes.py#L214)).
     *   Import CSV data into an SQL database ([`app/ml_models.py#L142`](predictive_dashboard/app/ml_models.py#L142)).
 *   **Model Management:**
     *   **Caching:** Efficiently caches trained models, associated data (train/test splits), performance metrics, and feature importances to disk ([`app/ml_models.py#L22`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L22), [`app/ml_models.py#L435`](predictive_dashboard/app/ml_models.py#L435)).
