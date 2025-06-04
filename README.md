@@ -15,17 +15,17 @@ The Predictive Sales Dashboard is a web application designed to provide insightf
     *   Feature importance plots for the Random Forest model.
     *   Time series decomposition plots (trend, seasonal, residual components).
 *   **Data Management:**
-    *   Upload sales data via CSV files ([`app/routes.py#L214`](/Users/omtailor/predictive_dashboard/app/routes.py#L214)).
-    *   Import CSV data into an SQL database ([`app/ml_models.py#L142`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L142)).
+    *   Upload sales data via CSV files ([`app/routes.py#L214`](predictive_dashboard/app/routes.py#L214)).
+    *   Import CSV data into an SQL database ([`app/ml_models.py#L142`](predictive_dashboard/app/ml_models.py#L142)).
 *   **Model Management:**
-    *   **Caching:** Efficiently caches trained models, associated data (train/test splits), performance metrics, and feature importances to disk ([`app/ml_models.py#L22`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L22), [`app/ml_models.py#L435`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L435)).
+    *   **Caching:** Efficiently caches trained models, associated data (train/test splits), performance metrics, and feature importances to disk ([`app/ml_models.py#L22`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L22), [`app/ml_models.py#L435`](predictive_dashboard/app/ml_models.py#L435)).
         *   Cached artifacts are stored in the `instance/rf_models_cache/` directory.
         *   Filename convention: `rf_model_store_<store_id>_item_<item_id>_<artifact_type>.<extension>`
     *   **Retraining:**
-        *   Manually trigger retraining of the global model ([`app/routes.py#L283`](/Users/omtailor/predictive_dashboard/app/routes.py#L283)).
-        *   Retrain specific models for store/item combinations ([`app/routes.py#L256`](/Users/omtailor/predictive_dashboard/app/routes.py#L256)).
+        *   Manually trigger retraining of the global model ([`app/routes.py#L283`](predictive_dashboard/app/routes.py#L283)).
+        *   Retrain specific models for store/item combinations ([`app/routes.py#L256`](predictive_dashboard/app/routes.py#L256)).
     *   **Cache Management:**
-        *   List all cached models with details ([`app/ml_models.py#L660`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L660), displayed on [`data_management.html`](/Users/omtailor/predictive_dashboard/app/templates/data_management.html#L40)).
+        *   List all cached models with details ([`app/ml_models.py#L660`](predictive_dashboard/app/ml_models.py#L660), displayed on [`data_management.html`](predictive_dashboard/app/templates/data_management.html#L40)).
         *   Delete specific cached models ([`app/routes.py#L235`](/Users/omtailor/predictive_dashboard/app/routes.py#L235)).
         *   Clear the entire Random Forest model cache ([`app/routes.py#L308`](/Users/omtailor/predictive_dashboard/app/routes.py#L308)).
 *   **Filtering:**
