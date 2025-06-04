@@ -16,23 +16,23 @@ The Predictive Sales Dashboard is a web application designed to provide insightf
     *   Time series decomposition plots (trend, seasonal, residual components).
 *   **Data Management:**
     *   Upload sales data via CSV files ([`app/routes.py#L214`](app/routes.py#L214)).
-    *   Import CSV data into an SQL database ([`app/ml_models.py#L142`](predictive_dashboard/app/ml_models.py#L142)).
+    *   Import CSV data into an SQL database ([`app/ml_models.py#L142`](app/ml_models.py#L142)).
 *   **Model Management:**
-    *   **Caching:** Efficiently caches trained models, associated data (train/test splits), performance metrics, and feature importances to disk ([`app/ml_models.py#L22`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L22), [`app/ml_models.py#L435`](predictive_dashboard/app/ml_models.py#L435)).
+    *   **Caching:** Efficiently caches trained models, associated data (train/test splits), performance metrics, and feature importances to disk ([`app/ml_models.py#L22`](app/ml_models.py#L22), [`app/ml_models.py#L435`](app/ml_models.py#L435)).
         *   Cached artifacts are stored in the `instance/rf_models_cache/` directory.
         *   Filename convention: `rf_model_store_<store_id>_item_<item_id>_<artifact_type>.<extension>`
     *   **Retraining:**
-        *   Manually trigger retraining of the global model ([`app/routes.py#L283`](predictive_dashboard/app/routes.py#L283)).
-        *   Retrain specific models for store/item combinations ([`app/routes.py#L256`](predictive_dashboard/app/routes.py#L256)).
+        *   Manually trigger retraining of the global model ([`app/routes.py#L283`](app/routes.py#L283)).
+        *   Retrain specific models for store/item combinations ([`app/routes.py#L256`](app/routes.py#L256)).
     *   **Cache Management:**
-        *   List all cached models with details ([`app/ml_models.py#L660`](predictive_dashboard/app/ml_models.py#L660), displayed on [`data_management.html`](predictive_dashboard/app/templates/data_management.html#L40)).
-        *   Delete specific cached models ([`app/routes.py#L235`](/Users/omtailor/predictive_dashboard/app/routes.py#L235)).
-        *   Clear the entire Random Forest model cache ([`app/routes.py#L308`](/Users/omtailor/predictive_dashboard/app/routes.py#L308)).
+        *   List all cached models with details ([`app/ml_models.py#L660`](app/ml_models.py#L660), displayed on [`data_management.html`](app/templates/data_management.html#L40)).
+        *   Delete specific cached models ([`app/routes.py#L235`](app/routes.py#L235)).
+        *   Clear the entire Random Forest model cache ([`app/routes.py#L308`](app/routes.py#L308)).
 *   **Filtering:**
-    *   Filter sales overview and model predictions by store and item ([`app/templates/sales_overview.html#L30`](/Users/omtailor/predictive_dashboard/app/templates/sales_overview.html#L30)).
+    *   Filter sales overview and model predictions by store and item ([`app/templates/sales_overview.html#L30`](app/templates/sales_overview.html#L30)).
 *   **User Interface:**
     *   Responsive web interface built with Bootstrap.
-    *   Global loading indicator for navigation and data processing ([`app/templates/base.html#L49`](/Users/omtailor/predictive_dashboard/app/templates/base.html#L49)).
+    *   Global loading indicator for navigation and data processing ([`app/templates/base.html#L49`](app/templates/base.html#L49)).
 
 ## 3. Tech Stack
 
@@ -59,7 +59,7 @@ The Predictive Sales Dashboard is a web application designed to provide insightf
 *   **Development Tools:**
     *   Virtualenv (recommended)
 
-(See [`requirements.txt`](/Users/omtailor/predictive_dashboard/requirements.txt) for a detailed list of Python dependencies.)
+(See [`requirements.txt`](requirements.txt) for a detailed list of Python dependencies.)
 
 ## 4. Project Structure
 
@@ -120,14 +120,14 @@ predictive_dashboard/
     The application uses `instance_relative_config=True`, so the SQLite database will typically be created in an `instance` folder.
 
 5.  **Initialize the Database and Seed Data:**
-    The [`seed_data.py`](/Users/omtailor/predictive_dashboard/seed_data.py) script handles database table creation and initial data import from `data/train.csv`.
+    The [`seed_data.py`](seed_data.py) script handles database table creation and initial data import from `data/train.csv`.
     ```bash
     python seed_data.py
     ```
     This will:
     *   Drop existing tables (if any).
-    *   Create tables based on models defined in [`app/models/data_models.py`](/Users/omtailor/predictive_dashboard/app/models/data_models.py).
-    *   Import sales data from `data/train.csv` using [`app.ml_models.import_sales_csv_to_db`](/Users/omtailor/predictive_dashboard/app/ml_models.py).
+    *   Create tables based on models defined in [`app/models/data_models.py`](app/models/data_models.py).
+    *   Import sales data from `data/train.csv` using [`app.ml_models.import_sales_csv_to_db`](app/ml_models.py).
 
 6.  **Run the Application:**
     ```bash
@@ -160,7 +160,7 @@ predictive_dashboard/
 
 ### 7.1. Sales Forecasting (Random Forest)
 
-*   **Core Training Function:** [`train_sales_forecasting_model_rf()`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L495) in `app/ml_models.py`.
+*   **Core Training Function:** [`train_sales_forecasting_model_rf()`](app/ml_models.py#L495) in `app/ml_models.py`.
     *   Handles data loading (from DB or CSV), preprocessing, train-test splitting.
     *   Trains a `RandomForestRegressor`.
     *   Calculates metrics (MSE, MAE, R²).
@@ -169,14 +169,14 @@ predictive_dashboard/
         *   Checks for existing cached models and artifacts (model, train/test dataframes, metrics, importances) using paths from `_get_rf_cache_paths()`.
         *   Loads from cache if `force_retrain` is `False` and all artifacts exist.
         *   Saves newly trained model and artifacts to cache.
-*   **Prediction Function:** [`predict_future_sales_rf()`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L603) in `app/ml_models.py`.
+*   **Prediction Function:** [`predict_future_sales_rf()`](app/ml_models.py#L603) in `app/ml_models.py`.
     *   Generates future dates and features.
     *   Uses the trained model to predict sales for `n_periods`.
-*   **Data Source:** Primarily uses data from the `SalesData` table ([`app/models/data_models.py`](/Users/omtailor/predictive_dashboard/app/models/data_models.py)), fetched by `get_sales_data_from_db_for_rf()`.
+*   **Data Source:** Primarily uses data from the `SalesData` table ([`app/models/data_models.py`](app/models/data_models.py)), fetched by `get_sales_data_from_db_for_rf()`.
 
 ### 7.2. Caching Mechanism
 
-*   **Cache Directory:** `instance/rf_models_cache/` (defined by `MODEL_CACHE_DIR_NAME` in [`app/ml_models.py`](/Users/omtailor/predictive_dashboard/app/ml_models.py)).
+*   **Cache Directory:** `instance/rf_models_cache/` (defined by `MODEL_CACHE_DIR_NAME` in [`app/ml_models.py`](app/ml_models.py)).
 *   **Cached Artifacts per Cohort (Store/Item):**
     *   `rf_model_store_<S>_item_<I>.joblib`: Serialized Scikit-learn model.
     *   `rf_model_store_<S>_item_<I>_train_df.pkl`: Pickled Pandas DataFrame for training plot data.
@@ -184,22 +184,22 @@ predictive_dashboard/
     *   `rf_model_store_<S>_item_<I>_metrics.json`: JSON file with model performance metrics (MSE, MAE, R²).
     *   `rf_model_store_<S>_item_<I>_importances.json`: JSON file with feature importances.
 *   **Cache Management Functions (in `app/ml_models.py`):**
-    *   [`_get_rf_cache_paths()`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L22): Generates file paths for a given cohort.
-    *   [`list_cached_rf_models()`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L660): Lists models in the cache.
-    *   [`delete_cached_rf_model()`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L729): Deletes files for a specific cohort.
-    *   [`clear_all_cached_rf_models()`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L774): Clears the entire cache directory.
+    *   [`_get_rf_cache_paths()`](app/ml_models.py#L22): Generates file paths for a given cohort.
+    *   [`list_cached_rf_models()`](app/ml_models.py#L660): Lists models in the cache.
+    *   [`delete_cached_rf_model()`](app/ml_models.py#L729): Deletes files for a specific cohort.
+    *   [`clear_all_cached_rf_models()`](app/ml_models.py#L774): Clears the entire cache directory.
 
 ### 7.3. Seasonal Decomposition
 
-*   The [`perform_seasonal_decomposition()`](/Users/omtailor/predictive_dashboard/app/ml_models.py#L652) function in `app/ml_models.py` uses `statsmodels.tsa.seasonal.seasonal_decompose` to break down the sales time series into trend, seasonal, and residual components.
-*   These components are visualized on the Sales Overview page ([`app/routes.py#L124`](/Users/omtailor/predictive_dashboard/app/routes.py#L124)).
+*   The [`perform_seasonal_decomposition()`](app/ml_models.py#L652) function in `app/ml_models.py` uses `statsmodels.tsa.seasonal.seasonal_decompose` to break down the sales time series into trend, seasonal, and residual components.
+*   These components are visualized on the Sales Overview page ([`app/routes.py#L124`](app/routes.py#L124)).
 
 ### 7.4. Routing and Views
 
-*   Routes are defined in [`app/routes.py`](/Users/omtailor/predictive_dashboard/app/routes.py) using a Flask Blueprint.
+*   Routes are defined in [`app/routes.py`](app/routes.py) using a Flask Blueprint.
 *   Key routes:
-    *   `/sales_overview`: Fetches/trains model, gets predictions, prepares plot data, and renders [`sales_overview.html`](/Users/omtailor/predictive_dashboard/app/templates/sales_overview.html).
-    *   `/data_management`: Handles CSV uploads and renders [`data_management.html`](/Users/omtailor/predictive_dashboard/app/templates/data_management.html) for model management tasks.
+    *   `/sales_overview`: Fetches/trains model, gets predictions, prepares plot data, and renders [`sales_overview.html`](app/templates/sales_overview.html).
+    *   `/data_management`: Handles CSV uploads and renders [`data_management.html`](app/templates/data_management.html) for model management tasks.
     *   POST routes for model actions: `/trigger_rf_retrain`, `/retrain_specific_model/...`, `/delete_cached_model/...`, `/clear_all_rf_cache`.
 
 ## 8. Potential Future Enhancements
